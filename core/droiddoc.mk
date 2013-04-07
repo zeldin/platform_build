@@ -147,6 +147,11 @@ $(full_target): PRIVATE_DROIDDOC_HTML_DIR := -htmldir $(LOCAL_PATH)/$(LOCAL_DROI
 else
 $(full_target): PRIVATE_DROIDDOC_HTML_DIR := 
 endif
+ifneq ($(strip $(LOCAL_ADDITIONAL_HTML_DIR)),)
+$(full_target): PRIVATE_ADDITIONAL_HTML_DIR := -htmldir2 $(LOCAL_PATH)/$(LOCAL_ADDITIONAL_HTML_DIR)
+else
+$(full_target): PRIVATE_ADDITIONAL_HTML_DIR :=
+endif
 
 # TODO: not clear if this is used any more
 $(full_target): PRIVATE_LOCAL_PATH := $(LOCAL_PATH)
@@ -155,7 +160,7 @@ html_dir_files := $(shell find $(LOCAL_PATH)/$(LOCAL_DROIDDOC_HTML_DIR) -type f)
 
 $(full_target): $(full_src_files) $(droiddoc_templates) $(droiddoc) $(html_dir_files) $(full_java_lib_deps) $(LOCAL_ADDITIONAL_DEPENDENCIES)
 	@echo Docs droiddoc: $(PRIVATE_OUT_DIR)
-	$(hide) mkdir -p $(dir $(full_target))
+	$(hide) mkdir -p $(dir $@)
 	$(call prepare-doc-source-list,$(PRIVATE_SRC_LIST_FILE),$(PRIVATE_JAVA_FILES), \
 			$(PRIVATE_SOURCE_INTERMEDIATES_DIR) $(PRIVATE_ADDITIONAL_JAVA_DIR))
 	$(hide) ( \
@@ -168,6 +173,7 @@ $(full_target): $(full_src_files) $(droiddoc_templates) $(droiddoc) $(html_dir_f
                 -docletpath $(PRIVATE_DOCLETPATH) \
                 -templatedir $(PRIVATE_CUSTOM_TEMPLATE_DIR) \
                 $(PRIVATE_DROIDDOC_HTML_DIR) \
+                $(PRIVATE_ADDITIONAL_HTML_DIR) \
                 $(addprefix -bootclasspath ,$(PRIVATE_BOOTCLASSPATH)) \
                 $(addprefix -classpath ,$(PRIVATE_CLASSPATH)) \
                 -sourcepath $(PRIVATE_SOURCE_PATH)$(addprefix :,$(PRIVATE_CLASSPATH)) \
@@ -187,7 +193,7 @@ else
 ##
 $(full_target): $(full_src_files) $(full_java_lib_deps)
 	@echo Docs javadoc: $(PRIVATE_OUT_DIR)
-	@mkdir -p $(dir $(full_target))
+	@mkdir -p $(dir $@)
 	$(call prepare-doc-source-list,$(PRIVATE_SRC_LIST_FILE),$(PRIVATE_JAVA_FILES), \
 			$(PRIVATE_SOURCE_INTERMEDIATES_DIR) $(PRIVATE_ADDITIONAL_JAVA_DIR))
 	$(hide) ( \

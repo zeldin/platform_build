@@ -121,12 +121,20 @@ $(warning ************************************************************)
 $(error Directory names containing spaces not supported)
 endif
 
+# Check for the corrent jdk
+ifneq ($(shell java -version 2>&1 | grep -i openjdk),)
+$(info ************************************************************)
+$(info You are attempting to build with an unsupported JDK.)
+$(info $(space))
+$(info You use OpenJDK but only Sun/Oracle JDK is supported.)
+$(info Please follow the machine setup instructions at)
+$(info $(space)$(space)$(space)$(space)https://source.android.com/source/download.html)
+$(info ************************************************************)
+$(error stop)
+endif
 
 # Check for the correct version of java
 java_version := $(shell java -version 2>&1 | head -n 1 | grep '^java .*[ "]1\.6[\. "$$]')
-ifneq ($(shell java -version 2>&1 | grep -i openjdk),)
-java_version :=
-endif
 ifeq ($(strip $(java_version)),)
 $(info ************************************************************)
 $(info You are attempting to build with the incorrect version)
@@ -422,8 +430,8 @@ SDK_ONLY := true
 endif
 
 ifeq ($(SDK_ONLY),true)
-include $(TOPDIR)sdk/build/sdk_only_whitelist.mk
-include $(TOPDIR)development/build/sdk_only_whitelist.mk
+include $(TOPDIR)sdk/build/windows_sdk_whitelist.mk
+include $(TOPDIR)development/build/windows_sdk_whitelist.mk
 
 # Exclude tools/acp when cross-compiling windows under linux
 ifeq ($(findstring Linux,$(UNAME)),)
@@ -635,7 +643,7 @@ ifdef is_sdk_build
   # TODO: Should we do this for all builds and not just the sdk?
   $(foreach m, $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES), \
     $(if $(strip $(ALL_MODULES.$(m).INSTALLED)),,\
-      $(warning $(ALL_MODULES.$(m).MAKEFILE): Module '$(m)' in PRODUCT_PACKAGES has nothing to install!)))
+      $(error $(ALL_MODULES.$(m).MAKEFILE): Module '$(m)' in PRODUCT_PACKAGES has nothing to install!)))
   $(foreach m, $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES_DEBUG), \
     $(if $(strip $(ALL_MODULES.$(m).INSTALLED)),,\
       $(warning $(ALL_MODULES.$(m).MAKEFILE): Module '$(m)' in PRODUCT_PACKAGES_DEBUG has nothing to install!)))
@@ -646,9 +654,6 @@ ifdef is_sdk_build
     $(if $(strip $(ALL_MODULES.$(m).INSTALLED)),,\
       $(warning $(ALL_MODULES.$(m).MAKEFILE): Module '$(m)' in PRODUCT_PACKAGES_TESTS has nothing to install!)))
 endif
-
-# Install all of the host modules
-modules_to_install += $(sort $(modules_to_install) $(ALL_HOST_INSTALLED_FILES))
 
 # build/core/Makefile contains extra stuff that we don't want to pollute this
 # top-level makefile with.  It expects that ALL_DEFAULT_INSTALLED_MODULES

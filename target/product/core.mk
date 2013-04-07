@@ -37,7 +37,6 @@ PRODUCT_PACKAGES += \
     KeyChain \
     MediaProvider \
     PackageInstaller \
-    PhotoTable \
     PicoTts \
     SettingsProvider \
     SharedStorageBackup \
@@ -126,8 +125,6 @@ PRODUCT_PACKAGES += \
     requestsync \
     screencap \
     sensorservice \
-    lint \
-    uiautomator \
     telephony-common \
     mms-common
 

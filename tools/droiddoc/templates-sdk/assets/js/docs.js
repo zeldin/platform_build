@@ -15,6 +15,11 @@ var SITE_ROOT = toRoot + basePath.substring(1,basePath.indexOf("/",1));
 
 var navBarIsFixed = false;
 $(document).ready(function() {
+  if (devsite) {
+    // move the lang selector into the overflow menu
+    $("#moremenu .mid div.header:last").after($("#language").detach());
+  }
+
   // init the fullscreen toggle click event
   $('#nav-swap .fullscreen').click(function(){
     if ($(this).hasClass('disabled')) {
@@ -140,14 +145,13 @@ $(document).ready(function() {
     $selListItem = $selNavLink.closest('li');
 
     $selListItem.addClass('selected');
-    $selListItem.closest('li.nav-section').addClass('expanded');
-    $selListItem.closest('li.nav-section').children('ul').show();
-    $selListItem.closest('li.nav-section').parent().closest('li.nav-section').addClass('expanded');
-    $selListItem.closest('li.nav-section').parent().closest('ul').show();
     
+    // Traverse up the tree and expand all parent nav-sections
+    $selNavLink.parents('li.nav-section').each(function() {
+      $(this).addClass('expanded');
+      $(this).children('ul').show();
+    });
     
-  //  $selListItem.closest('li.nav-section').closest('li.nav-section').addClass('expanded');
-  //  $selListItem.closest('li.nav-section').closest('li.nav-section').children('ul').show();  
 
     // set up prev links
     var $prevLink = [];
@@ -359,7 +363,13 @@ false; // navigate across topic boundaries only in design docs
     var searchResultHeight = $('#searchResults').is(":visible") ? 
                              $('#searchResults').outerHeight() : 0;
     var totalHeaderHeight = headerHeight + subheaderHeight + searchResultHeight;
+    // we set the navbar fixed when the scroll position is beyond the height of the site header...
     var navBarShouldBeFixed = scrollTop > totalHeaderHeight;
+    // ... except if the document content is shorter than the sidenav height.
+    // (this is necessary to avoid crazy behavior on OSX Lion due to overscroll bouncing)
+    if ($("#doc-col").height() < $("#side-nav").height()) {
+      navBarShouldBeFixed = false;
+    }
    
     var scrollLeft = $(window).scrollLeft();
     // When the sidenav is fixed and user scrolls horizontally, reposition the sidenav to match
@@ -484,6 +494,36 @@ false; // navigate across topic boundaries only in design docs
   
   resizeNav();
 
+  /* init the language selector based on user cookie for lang */
+  loadLangPref();
+  changeNavLang(getLangPref());
+
+  /* setup event handlers to ensure the overflow menu is visible while picking lang */
+  $("#language select")
+      .mousedown(function() {
+        $("div.morehover").addClass("hover"); })
+      .blur(function() {
+        $("div.morehover").removeClass("hover"); });
+
+  /* some global variable setup */
+  resizePackagesNav = $("#resize-packages-nav");
+  classesNav = $("#classes-nav");
+  devdocNav = $("#devdoc-nav");
+
+  var cookiePath = "";
+  if (location.href.indexOf("/reference/") != -1) {
+    cookiePath = "reference_";
+  } else if (location.href.indexOf("/guide/") != -1) {
+    cookiePath = "guide_";
+  } else if (location.href.indexOf("/tools/") != -1) {
+    cookiePath = "tools_";
+  } else if (location.href.indexOf("/training/") != -1) {
+    cookiePath = "training_";
+  } else if (location.href.indexOf("/design/") != -1) {
+    cookiePath = "design_";
+  } else if (location.href.indexOf("/distribute/") != -1) {
+    cookiePath = "distribute_";
+  }
 
 });
 
@@ -571,28 +611,6 @@ addLoadEvent( function() {
   prettyPrint();
 } );
 
-function init() {
-  //resizeNav();
-
-  resizePackagesNav = $("#resize-packages-nav");
-  classesNav = $("#classes-nav");
-  devdocNav = $("#devdoc-nav");
-
-  var cookiePath = "";
-  if (location.href.indexOf("/reference/") != -1) {
-    cookiePath = "reference_";
-  } else if (location.href.indexOf("/guide/") != -1) {
-    cookiePath = "guide_";
-  } else if (location.href.indexOf("/tools/") != -1) {
-    cookiePath = "tools_";
-  } else if (location.href.indexOf("/training/") != -1) {
-    cookiePath = "training_";
-  } else if (location.href.indexOf("/design/") != -1) {
-    cookiePath = "design_";
-  } else if (location.href.indexOf("/distribute/") != -1) {
-    cookiePath = "distribute_";
-  }
-}
 
 
 
@@ -1029,20 +1047,25 @@ function changeNavLang(lang) {
   });
 }
 
-function changeDocLang(lang) {
-  changeNavLang(lang);
-}
-
-function changeLangPref(lang, refresh) {
+function changeLangPref(lang, submit) {
   var date = new Date();
   expires = date.toGMTString(date.setTime(date.getTime()+(10*365*24*60*60*1000))); 
   // keep this for 50 years
   //alert("expires: " + expires)
   writeCookie("pref_lang", lang, null, expires);
-  changeDocLang(lang);
-  if (refresh) {
-    l = getBaseUri(location.pathname);
-    window.location = l;
+
+  //  #######  TODO:  Remove this condition once we're stable on devsite #######
+  //  This condition is only needed if we still need to support legacy GAE server
+  if (devsite) {
+    // Switch language when on Devsite server
+    if (submit) {
+      $("#setlang").submit();
+    }
+  } else {
+    // Switch language when on legacy GAE server
+    if (submit) {
+      window.location = getBaseUri(location.pathname);
+    }
   }
 }
 
@@ -1111,7 +1134,7 @@ function hideExpandable(ids) {
 
 
 
-/*  	
+/*    
  *  Slideshow 1.0
  *  Used on /index.html and /develop/index.html for carousel
  *
@@ -1139,6 +1162,7 @@ function hideExpandable(ids) {
  *  Options:
  *  btnPrev:    optional identifier for previous button
  *  btnNext:    optional identifier for next button
+ *  btnPause:   optional identifier for pause button
  *  auto:       whether or not to auto-proceed
  *  speed:      animation speed
  *  autoTime:   time between auto-rotation
@@ -1156,6 +1180,7 @@ function hideExpandable(ids) {
      o = $.extend({
          btnPrev:   null,
          btnNext:   null,
+         btnPause:  null,
          auto:      true,
          speed:     500,
          autoTime:  12000,
@@ -1226,6 +1251,17 @@ function hideExpandable(ids) {
                  e.preventDefault();
                  return go(curr+o.scroll);
              });
+
+         //Pause button
+         if(o.btnPause)
+             $(o.btnPause).click(function(e) {
+                 e.preventDefault();
+                 if ($(this).hasClass('paused')) {
+                     startRotateTimer();
+                 } else {
+                     pauseRotateTimer();
+                 }
+             });
          
          //Auto rotation
          if(o.auto) startRotateTimer();
@@ -1239,6 +1275,12 @@ function hideExpandable(ids) {
                     go(curr+o.scroll);  
                   } 
               }, o.autoTime);
+             $(o.btnPause).removeClass('paused');
+         }
+
+         function pauseRotateTimer() {
+             clearInterval(timer);
+             $(o.btnPause).addClass('paused');
          }
 
          //Go to an item
@@ -1295,7 +1337,7 @@ function hideExpandable(ids) {
  })(jQuery);
 
 
-/*	
+/*  
  *  dacSlideshow 1.0
  *  Used on develop/index.html for side-sliding tabs
  *
@@ -1722,6 +1764,10 @@ function loadSearchResults() {
   referenceSearcher.setUserDefinedLabel("Reference");
   referenceSearcher.setSiteRestriction("http://developer.android.com/reference/");
 
+  googleSearcher = new google.search.WebSearch();
+  googleSearcher.setUserDefinedLabel("Google Services");
+  googleSearcher.setSiteRestriction("http://developer.android.com/google/");
+
   blogSearcher = new google.search.WebSearch();
   blogSearcher.setUserDefinedLabel("Blog");
   blogSearcher.setSiteRestriction("http://android-developers.blogspot.com");
@@ -1732,6 +1778,7 @@ function loadSearchResults() {
   searchControl.addSearcher(trainingSearcher, searchOptions);
   searchControl.addSearcher(guidesSearcher, searchOptions);
   searchControl.addSearcher(referenceSearcher, searchOptions);
+  searchControl.addSearcher(googleSearcher, searchOptions);
   searchControl.addSearcher(blogSearcher, searchOptions);
 
   // configure result options
@@ -1849,12 +1896,16 @@ function escapeHTML(string) {
 /* ######################################################## */
 
 /* Initialize some droiddoc stuff, but only if we're in the reference */
-if (location.pathname.indexOf("/reference") == 0) {
-  $(document).ready(function() {
-    // init available apis based on user pref
-    changeApiLevel();
-    initSidenavHeightResize()
-  });
+if (location.pathname.indexOf("/reference")) {
+  if(!location.pathname.indexOf("/reference-gms/packages.html")
+    && !location.pathname.indexOf("/reference-gcm/packages.html")
+    && !location.pathname.indexOf("/reference/com/google") == 0) {
+    $(document).ready(function() {
+      // init available apis based on user pref
+      changeApiLevel();
+      initSidenavHeightResize()
+      });
+  }
 }
 
 var API_LEVEL_COOKIE = "api_level";
@@ -2065,6 +2116,9 @@ function new_node(me, mom, text, link, children_data, api_level)
   return node;
 }
 
+
+
+
 function expand_node(me, node)
 {
   if (node.children_data && !node.expanded) {
@@ -2142,13 +2196,6 @@ function find_page(url, data)
   return null;
 }
 
-function load_navtree_data(toroot) {
-  var navtreeData = document.createElement("script");
-  navtreeData.setAttribute("type","text/javascript");
-  navtreeData.setAttribute("src", toroot+"navtree_data.js");
-  $("head").append($(navtreeData));
-}
-
 function init_default_navtree(toroot) {
   init_navtree("tree-list", toroot, NAVTREE_DATA);
   
@@ -2188,6 +2235,106 @@ function init_navtree(navtree_id, toroot, root_nodes)
       scrollIntoView("nav-tree");
       });
   }
+}
+
+/* TODO: eliminate redundancy with non-google functions */
+function init_google_navtree(navtree_id, toroot, root_nodes)
+{
+  var me = new Object();
+  me.toroot = toroot;
+  me.node = new Object();
+
+  me.node.li = document.getElementById(navtree_id);
+  me.node.children_data = root_nodes;
+  me.node.children = new Array();
+  me.node.children_ul = document.createElement("ul");
+  me.node.get_children_ul = function() { return me.node.children_ul; };
+  //me.node.children_ul.className = "children_ul";
+  me.node.li.appendChild(me.node.children_ul);
+  me.node.depth = 0;
+
+  get_google_node(me, me.node);
+
+}
+
+function new_google_node(me, mom, text, link, children_data, api_level)
+{
+  var node = new Object();
+  var child;
+  node.children = Array();
+  node.children_data = children_data;
+  node.depth = mom.depth + 1;
+  node.get_children_ul = function() {
+      if (!node.children_ul) {
+        node.children_ul = document.createElement("ul"); 
+        node.children_ul.className = "tree-list-children"; 
+        node.li.appendChild(node.children_ul);
+      }
+      return node.children_ul;
+    };
+  node.li = document.createElement("li");
+
+  mom.get_children_ul().appendChild(node.li);
+  
+  
+  if(link) {
+    child = document.createElement("a");
+
+  }
+  else {
+    child = document.createElement("span");
+    child.className = "tree-list-subtitle";
+
+  }
+  if (children_data != null) {
+    node.li.className="nav-section";
+    node.label_div = document.createElement("div");
+    node.label_div.className = "nav-section-header-ref";  
+    node.li.appendChild(node.label_div);
+    get_google_node(me, node);
+    node.label_div.appendChild(child);
+  }
+  else {
+    node.li.appendChild(child);
+  }
+  if(link) {
+    child.href = me.toroot + link;
+  }
+  node.label = document.createTextNode(text);
+  child.appendChild(node.label);
+
+  node.children_ul = null;
+
+  return node;
+}
+
+function get_google_node(me, mom)
+{
+  mom.children_visited = true;
+  var linkText;
+  for (var i in mom.children_data) {
+    var node_data = mom.children_data[i];
+    linkText = node_data[0];
+
+    if(linkText.match("^"+"com.google.android")=="com.google.android"){
+      linkText = linkText.substr(19, linkText.length);
+    }
+      mom.children[i] = new_google_node(me, mom, linkText, node_data[1],
+          node_data[2], node_data[3]);
+  }
+}
+function showGoogleRefTree() {
+  init_default_google_navtree(toRoot);
+  init_default_gcm_navtree(toRoot);
+  resizeNav();
+}
+
+function init_default_google_navtree(toroot) {
+  init_google_navtree("gms-tree-list", toroot, GMS_NAVTREE_DATA);
+}
+
+function init_default_gcm_navtree(toroot) {
+  init_google_navtree("gcm-tree-list", toroot, GCM_NAVTREE_DATA);
 }
 
 /* TOGGLE INHERITED MEMBERS */
@@ -2283,6 +2430,3 @@ var control = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey; // get ctrl key
     ensureAllInheritedExpanded();
   }
 });
-
-
-

@@ -1,8 +1,8 @@
 <?cs include:"doctype.cs" ?>
 <?cs include:"macros.cs" ?>
-<html>
+<html<?cs if:devsite ?> devsite<?cs /if ?>>
 <?cs include:"head_tag.cs" ?>
-<body class="gc-documentation
+<body class="gc-documentation <?cs if:(google || reference.gms || reference.gcm) ?>google<?cs /if ?>
   <?cs if:(guide||develop||training||reference||tools||sdk) ?>develop<?cs if:guide ?> guide<?cs /if ?><?cs
   elif:about ?>about<?cs
   elif:design ?>design<?cs
@@ -17,7 +17,7 @@
 ?>class="col-13" id="doc-col"<?cs else 
 ?>class="col-12" id="doc-col"<?cs /if ?> >
 
-<?cs if:(design||training||walkthru) && !page.trainingcourse ?><?cs # header logic for docs that provide previous/next buttons ?>
+<?cs if:(design||training||walkthru) && !page.trainingcourse && !page.article ?><?cs # header logic for docs that provide previous/next buttons ?>
   <?cs if:header.hide ?>
   <?cs else ?>
   <div class="layout-content-row content-header <?cs if:header.justLinks ?>just-links<?cs /if ?>">
@@ -154,7 +154,7 @@
       </div>
       
       <?cs # for training classes, provide a different kind of link when the next page is a different class ?>
-      <?cs if:training ?>
+      <?cs if:training && !page.article ?>
       <div class="layout-content-row content-footer next-class" style="display:none" itemscope itemtype="http://schema.org/SiteNavigationElement">
           <a href="#" class="next-class-link hide">Next class: </a>
       </div>

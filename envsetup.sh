@@ -107,8 +107,8 @@ function setpaths()
     fi
     if [ -n "$ANDROID_PRE_BUILD_PATHS" ] ; then
         export PATH=${PATH/$ANDROID_PRE_BUILD_PATHS/}
-        # strip trailing ':', if any
-        export PATH=${PATH/%:/}
+        # strip leading ':', if any
+        export PATH=${PATH/:%/}
     fi
 
     # and in with the new
@@ -116,7 +116,7 @@ function setpaths()
     prebuiltdir=$(getprebuilt)
     gccprebuiltdir=$(get_abs_build_var ANDROID_GCC_PREBUILTS)
 
-    # defined in core/combo/TARGET_linux-{arm,mips,x86}.mk
+    # defined in core/config.mk
     targetgccversion=$(get_build_var TARGET_GCC_VERSION)
     export TARGET_GCC_VERSION=$targetgccversion
 
@@ -157,9 +157,9 @@ function setpaths()
 
     export ANDROID_TOOLCHAIN=$ANDROID_EABI_TOOLCHAIN
     export ANDROID_QTOOLS=$T/development/emulator/qtools
-    export ANDROID_DEV_SCRIPTS=$T/development/scripts
-    export ANDROID_BUILD_PATHS=:$(get_build_var ANDROID_BUILD_PATHS):$ANDROID_QTOOLS:$ANDROID_TOOLCHAIN$ARM_EABI_TOOLCHAIN_PATH$CODE_REVIEWS:$ANDROID_DEV_SCRIPTS
-    export PATH=$PATH$ANDROID_BUILD_PATHS
+    export ANDROID_DEV_SCRIPTS=$T/development/scripts:$T/prebuilts/devtools/tools
+    export ANDROID_BUILD_PATHS=$(get_build_var ANDROID_BUILD_PATHS):$ANDROID_QTOOLS:$ANDROID_TOOLCHAIN$ARM_EABI_TOOLCHAIN_PATH$CODE_REVIEWS:$ANDROID_DEV_SCRIPTS:
+    export PATH=$ANDROID_BUILD_PATHS$PATH
 
     unset ANDROID_JAVA_TOOLCHAIN
     unset ANDROID_PRE_BUILD_PATHS
@@ -737,7 +737,45 @@ function pid()
 # to the usual ANR traces file
 function systemstack()
 {
-    adb shell echo '""' '>>' /data/anr/traces.txt && adb shell chmod 776 /data/anr/traces.txt && adb shell kill -3 $(pid system_server)
+    stacks system_server
+}
+
+function stacks()
+{
+    if [[ $1 =~ ^[0-9]+$ ]] ; then
+        local PID="$1"
+    elif [ "$1" ] ; then
+        local PID=$(pid $1)
+    else
+        echo "usage: stacks [pid|process name]"
+    fi
+
+    if [ "$PID" ] ; then
+        local TRACES=/data/anr/traces.txt
+        local ORIG=/data/anr/traces.orig
+        local TMP=/data/anr/traces.tmp
+
+        # Keep original traces to avoid clobbering
+        adb shell mv $TRACES $ORIG
+
+        # Make sure we have a usable file
+        adb shell touch $TRACES
+        adb shell chmod 666 $TRACES
+
+        # Dump stacks and wait for dump to finish
+        adb shell kill -3 $PID
+        adb shell notify $TRACES
+
+        # Restore original stacks, and show current output
+        adb shell mv $TRACES $TMP
+        adb shell mv $ORIG $TRACES
+        adb shell cat $TMP | less -S
+    fi
+}
+
+function gdbwrapper()
+{
+    $ANDROID_TOOLCHAIN/$GDB -x "$@"
 }
 
 function gdbclient()
@@ -796,7 +834,7 @@ function gdbclient()
        echo >>"$OUT_ROOT/gdbclient.cmds" "target remote $PORT"
        echo >>"$OUT_ROOT/gdbclient.cmds" ""
 
-       $ANDROID_TOOLCHAIN/$GDB -x "$OUT_ROOT/gdbclient.cmds" "$OUT_EXE_SYMBOLS/$EXE"
+       gdbwrapper "$OUT_ROOT/gdbclient.cmds" "$OUT_EXE_SYMBOLS/$EXE"
   else
        echo "Unable to determine build system output dir."
    fi
@@ -837,6 +875,11 @@ function cgrep()
 function resgrep()
 {
     for dir in `find . -name .repo -prune -o -name .git -prune -o -name res -type d`; do find $dir -type f -name '*\.xml' -print0 | xargs -0 grep --color -n "$@"; done;
+}
+
+function mangrep()
+{
+    find . -name .repo -prune -o -name .git -prune -o -path ./out -prune -o -type f -name 'AndroidManifest.xml' -print0 | xargs -0 grep --color -n "$@"
 }
 
 case `uname -s` in

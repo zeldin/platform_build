@@ -55,11 +55,6 @@ ALL_MODULE_TAGS:=
 # its sub-variables.)
 ALL_MODULE_NAME_TAGS:=
 
-# All host modules are automatically installed (i.e. outside
-# of the product configuration scheme).  This is a list of the
-# install targets (LOCAL_INSTALLED_MODULE).
-ALL_HOST_INSTALLED_FILES:=
-
 # Full paths to all prebuilt files that will be copied
 # (used to make the dependency on acp)
 ALL_PREBUILT:=
@@ -2063,6 +2058,29 @@ $(eval _erm_new_modules := $(sort $(filter-out $($(1)),\
   $(foreach m,$(2),$(ALL_MODULES.$(m).REQUIRED)))))\
 $(if $(_erm_new_modules),$(eval $(1) += $(_erm_new_modules))\
   $(call expand-required-modules,$(1),$(_erm_new_modules)))
+endef
+
+###########################################################
+## API Check
+###########################################################
+
+# eval this to define a rule that runs apicheck.
+#
+# Args:
+#    $(1)  target
+#    $(2)  stable api file
+#    $(3)  api file to be tested
+#    $(4)  arguments for apicheck
+#    $(5)  command to run if apicheck failed
+#    $(6)  target dependent on this api check
+#    $(7)  additional dependencies
+define check-api
+$(TARGET_OUT_COMMON_INTERMEDIATES)/PACKAGING/$(strip $(1))-timestamp: $(2) $(3) $(APICHECK) $(7)
+	@echo "Checking API:" $(1)
+	$(hide) ( $(APICHECK_COMMAND) $(4) $(2) $(3) || ( $(5) ; exit 38 ) )
+	$(hide) mkdir -p $$(dir $$@)
+	$(hide) touch $$@
+$(6): $(TARGET_OUT_COMMON_INTERMEDIATES)/PACKAGING/$(strip $(1))-timestamp
 endef
 
 ###########################################################
