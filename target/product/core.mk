@@ -51,6 +51,7 @@ PRODUCT_PACKAGES += \
     cacerts \
     com.android.location.provider \
     com.android.location.provider.xml \
+    conscrypt \
     core \
     core-junit \
     dalvikvm \
@@ -122,6 +123,7 @@ PRODUCT_PACKAGES += \
     libz \
     make_ext4fs \
     mdnsd \
+    okhttp \
     requestsync \
     screencap \
     sensorservice \
@@ -141,7 +143,9 @@ ifeq ($(WITH_HOST_DALVIK),true)
     PRODUCT_PACKAGES += \
         apache-xml-hostdex \
         bouncycastle-hostdex \
+        conscrypt-hostdex \
         core-hostdex \
+        okhttp-hostdex \
         libcrypto \
         libexpat \
         libicui18n \
