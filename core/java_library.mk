@@ -18,10 +18,9 @@ ifneq (true,$(LOCAL_IS_STATIC_JAVA_LIBRARY))
 ifneq (,$(LOCAL_RESOURCE_DIR))
 $(error $(LOCAL_PATH): Target java libraries may not set LOCAL_RESOURCE_DIR)
 endif
-endif
-
-#xxx base_rules.mk looks at this
+# base_rules.mk looks at this
 all_res_assets :=
+endif
 
 LOCAL_BUILT_MODULE_STEM := javalib.jar
 
@@ -33,21 +32,6 @@ LOCAL_INTERMEDIATE_TARGETS += $(common_javalib.jar)
 
 ifeq ($(LOCAL_PROGUARD_ENABLED),disabled)
   LOCAL_PROGUARD_ENABLED :=
-endif
-
-ifneq (true,$(WITH_DEXPREOPT))
-LOCAL_DEX_PREOPT :=
-else
-ifeq (,$(TARGET_BUILD_APPS))
-ifeq (,$(LOCAL_APK_LIBRARIES))
-ifndef LOCAL_DEX_PREOPT
-LOCAL_DEX_PREOPT := true
-endif
-endif
-endif
-endif
-ifeq (false,$(LOCAL_DEX_PREOPT))
-LOCAL_DEX_PREOPT :=
 endif
 
 ifeq (true,$(EMMA_INSTRUMENT))
@@ -94,28 +78,30 @@ ifneq ($(extra_jar_args),)
 endif
 
 ifdef LOCAL_DEX_PREOPT
-dexpreopt_boot_jar_module := $(filter $(LOCAL_MODULE),$(DEXPREOPT_BOOT_JARS_MODULES))
-ifneq ($(dexpreopt_boot_jar_module),)
+ifneq ($(dexpreopt_boot_jar_module),) # boot jar
 # boot jar's rules are defined in dex_preopt.mk
 dexpreopted_boot_jar := $(DEXPREOPT_BOOT_JAR_DIR_FULL_PATH)/$(dexpreopt_boot_jar_module)_nodex.jar
 $(LOCAL_BUILT_MODULE) : $(dexpreopted_boot_jar) | $(ACP)
 	$(call copy-file-to-target)
 
+# For libart boot jars, we don't have .odex files.
+ifeq ($(DALVIK_VM_LIB),libdvm.so)
 dexpreopted_boot_odex := $(DEXPREOPT_BOOT_JAR_DIR_FULL_PATH)/$(dexpreopt_boot_jar_module).odex
-built_odex := $(basename $(LOCAL_BUILT_MODULE)).odex
 $(built_odex) : $(dexpreopted_boot_odex) | $(ACP)
 	$(call copy-file-to-target)
+endif
 
-else # dexpreopt_boot_jar_module
-built_odex := $(basename $(LOCAL_BUILT_MODULE)).odex
+else # ! boot jar
 $(built_odex): PRIVATE_MODULE := $(LOCAL_MODULE)
+$(built_odex): PRIVATE_DEX_LOCATION := $(patsubst $(PRODUCT_OUT)%,%,$(LOCAL_INSTALLED_MODULE))
+$(built_odex): PRIVATE_DEX_PREOPT_IMAGE := $(LOCAL_DEX_PREOPT_IMAGE)
 # Make sure the boot jars get dex-preopt-ed first
-$(built_odex) : $(DEXPREOPT_BOOT_ODEXS)
-$(built_odex) : $(common_javalib.jar) | $(DEXPREOPT) $(DEXOPT)
+$(built_odex) : $(DEXPREOPT_ONE_FILE_DEPENDENCY_BUILT_BOOT_PREOPT)
+$(built_odex) : $(DEXPREOPT_ONE_FILE_DEPENDENCY_TOOLS)
+$(built_odex) : $(LOCAL_DEX_PREOPT_IMAGE)
+$(built_odex) : $(common_javalib.jar)
 	@echo "Dexpreopt Jar: $(PRIVATE_MODULE) ($@)"
-	$(hide) rm -f $@
-	@mkdir -p $(dir $@)
-	$(call dexpreopt-one-file,$<,$@)
+	$(call dexpreopt-one-file,$(PRIVATE_DEX_PREOPT_IMAGE),$<,$(PRIVATE_DEX_LOCATION),$@)
 
 $(LOCAL_BUILT_MODULE) : $(common_javalib.jar) | $(ACP)
 	$(call copy-file-to-target)
@@ -123,7 +109,7 @@ ifneq (nostripping,$(LOCAL_DEX_PREOPT))
 	$(call dexpreopt-remove-classes.dex,$@)
 endif
 
-endif # dexpreopt_boot_jar_module
+endif # ! boot jar
 
 else # LOCAL_DEX_PREOPT
 $(LOCAL_BUILT_MODULE) : $(common_javalib.jar) | $(ACP)

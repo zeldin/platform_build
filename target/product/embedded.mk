@@ -22,12 +22,15 @@ PRODUCT_PACKAGES += \
     adbd \
     bootanimation \
     debuggerd \
+    debuggerd64 \
     dumpstate \
     dumpsys \
     gralloc.default \
     gzip \
+    healthd \
     init \
-    input \
+    init.environ.rc \
+    init.rc \
     libEGL \
     libETC1 \
     libFFTEm \
@@ -52,14 +55,17 @@ PRODUCT_PACKAGES += \
     libsurfaceflinger \
     libsurfaceflinger_ddmconnection \
     libsysutils \
-    libthread_db \
     libui \
     libutils \
     linker \
+    linker64 \
     logcat \
     logwrapper \
+    mkshrc \
+    reboot \
     service \
     servicemanager \
+    sh \
     surfaceflinger \
     toolbox
 
@@ -71,6 +77,9 @@ PRODUCT_PACKAGES += \
     property_contexts \
     mac_permissions.xml
 
+
 PRODUCT_COPY_FILES += \
     system/core/rootdir/init.usb.rc:root/init.usb.rc \
     system/core/rootdir/init.trace.rc:root/init.trace.rc \
+    system/core/rootdir/ueventd.rc:root/ueventd.rc \
+    system/core/rootdir/etc/hosts:system/etc/hosts

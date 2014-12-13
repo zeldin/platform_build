@@ -27,7 +27,7 @@ $(call host-shared-library-hook)
 skip_build_from_source :=
 ifdef LOCAL_PREBUILT_MODULE_FILE
 ifeq (,$(call if-build-from-source,$(LOCAL_MODULE),$(LOCAL_PATH)))
-include $(BUILD_PREBUILT)
+include $(BUILD_SYSTEM)/prebuilt_internal.mk
 skip_build_from_source := true
 endif
 endif
@@ -44,3 +44,8 @@ $(LOCAL_BUILT_MODULE): $(all_objects) $(all_libraries) $(LOCAL_ADDITIONAL_DEPEND
 	$(transform-host-o-to-shared-lib)
 
 endif  # skip_build_from_source
+
+###########################################################
+## Copy headers to the install tree
+###########################################################
+include $(BUILD_COPY_HEADERS)

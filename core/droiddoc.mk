@@ -69,7 +69,7 @@ ifneq ($(LOCAL_SDK_VERSION),)
     LOCAL_JAVA_LIBRARIES := sdk_v$(LOCAL_SDK_VERSION) $(LOCAL_JAVA_LIBRARIES)
   endif
 else
-  LOCAL_JAVA_LIBRARIES := core ext framework $(LOCAL_JAVA_LIBRARIES)
+  LOCAL_JAVA_LIBRARIES := core ext framework framework2 $(LOCAL_JAVA_LIBRARIES)
 endif  # LOCAL_SDK_VERSION
 LOCAL_JAVA_LIBRARIES := $(sort $(LOCAL_JAVA_LIBRARIES))
 
@@ -162,6 +162,7 @@ $(full_target): $(full_src_files) $(droiddoc_templates) $(droiddoc) $(html_dir_f
 			$(PRIVATE_SOURCE_INTERMEDIATES_DIR) $(PRIVATE_ADDITIONAL_JAVA_DIR))
 	$(hide) ( \
 		javadoc \
+                -encoding UTF-8 \
                 \@$(PRIVATE_SRC_LIST_FILE) \
                 -J-Xmx1280m \
                 $(PRIVATE_PROFILING_OPTIONS) \
@@ -195,6 +196,7 @@ $(full_target): $(full_src_files) $(full_java_lib_deps)
 			$(PRIVATE_SOURCE_INTERMEDIATES_DIR) $(PRIVATE_ADDITIONAL_JAVA_DIR))
 	$(hide) ( \
 		javadoc \
+                -encoding UTF-8 \
                 $(PRIVATE_DROIDDOC_OPTIONS) \
                 \@$(PRIVATE_SRC_LIST_FILE) \
                 -J-Xmx1024m \

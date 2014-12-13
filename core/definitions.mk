@@ -84,6 +84,7 @@ ALL_GPL_MODULE_LICENSE_FILES:=
 # Target and host installed module's dependencies on shared libraries.
 # They are list of "<module_name>:<installed_file>:lib1,lib2...".
 TARGET_DEPENDENCIES_ON_SHARED_LIBRARIES :=
+2ND_TARGET_DEPENDENCIES_ON_SHARED_LIBRARIES :=
 HOST_DEPENDENCIES_ON_SHARED_LIBRARIES :=
 
 # Generated class file names for Android resource.
@@ -117,14 +118,15 @@ endef
 
 ###########################################################
 ## Retrieve the directory of the current makefile
+## Must be called before including any other makefile!!
 ###########################################################
 
 # Figure out where we are.
 define my-dir
 $(strip \
   $(eval LOCAL_MODULE_MAKEFILE := $$(lastword $$(MAKEFILE_LIST))) \
-  $(if $(filter $(CLEAR_VARS),$(LOCAL_MODULE_MAKEFILE)), \
-    $(error LOCAL_PATH must be set before including $$(CLEAR_VARS)) \
+  $(if $(filter $(BUILD_SYSTEM)/% $(OUT_DIR)/%,$(LOCAL_MODULE_MAKEFILE)), \
+    $(error my-dir must be called before including any other makefile.) \
    , \
     $(patsubst %/,%,$(dir $(LOCAL_MODULE_MAKEFILE))) \
    ) \
@@ -147,12 +149,13 @@ endef
 # $(1): directory to search under
 # Ignores $(1)/Android.mk
 define first-makefiles-under
-$(shell build/tools/findleaves.py --prune=out --prune=.repo --prune=.git \
+$(shell build/tools/findleaves.py --prune=$(OUT_DIR) --prune=.repo --prune=.git \
         --mindepth=2 $(1) Android.mk)
 endef
 
 ###########################################################
 ## Retrieve a list of all makefiles immediately below your directory
+## Must be called before including any other makefile!!
 ###########################################################
 
 define all-subdir-makefiles
@@ -162,6 +165,7 @@ endef
 ###########################################################
 ## Look in the named list of directories for makefiles,
 ## relative to the current directory.
+## Must be called before including any other makefile!!
 ###########################################################
 
 # $(1): List of directories to look for under this directory
@@ -274,6 +278,19 @@ $(patsubst ./%,%, \
 endef
 
 ###########################################################
+## Find all of the S files under the named directories.
+## Meant to be used like:
+##    SRC_FILES := $(call all-c-files-under,src tests)
+###########################################################
+
+define all-S-files-under
+$(patsubst ./%,%, \
+  $(shell cd $(LOCAL_PATH) ; \
+          find -L $(1) -name "*.S" -and -not -name ".*") \
+ )
+endef
+
+###########################################################
 ## Find all of the html files under the named directories.
 ## Meant to be used like:
 ##    SRC_FILES := $(call all-html-files-under,src tests)
@@ -342,6 +359,22 @@ define find-other-html-files
 endef
 
 ###########################################################
+# Use utility find to find given files in the given subdirs.
+# This function uses $(1), instead of LOCAL_PATH as the base.
+# $(1): the base dir, relative to the root of the source tree.
+# $(2): the file name pattern to be passed to find as "-name".
+# $(3): a list of subdirs of the base dir.
+# Returns: a list of paths relative to the base dir.
+###########################################################
+
+define find-files-in-subdirs
+$(patsubst ./%,%, \
+  $(shell cd $(1) ; \
+          find -L $(3) -name $(2) -and -not -name ".*") \
+ )
+endef
+
+###########################################################
 ## Scan through each directory of $(1) looking for files
 ## that match $(2) using $(wildcard).  Useful for seeing if
 ## a given directory or one of its parents contains
@@ -369,36 +402,6 @@ $(1): $(2)
 endef
 
 ###########################################################
-## Set up the dependencies for a prebuilt target
-##  $(call add-prebuilt-file, srcfile, [targetclass])
-###########################################################
-
-define add-prebuilt-file
-    $(eval $(include-prebuilt))
-endef
-
-define include-prebuilt
-    include $$(CLEAR_VARS)
-    LOCAL_SRC_FILES := $(1)
-    LOCAL_BUILT_MODULE_STEM := $(1)
-    LOCAL_MODULE_SUFFIX := $$(suffix $(1))
-    LOCAL_MODULE := $$(basename $(1))
-    LOCAL_MODULE_CLASS := $(2)
-    include $$(BUILD_PREBUILT)
-endef
-
-###########################################################
-## do multiple prebuilts
-##  $(call target class, files ...)
-###########################################################
-
-define add-prebuilt-files
-    $(foreach f,$(2),$(call add-prebuilt-file,$f,$(1)))
-endef
-
-
-
-###########################################################
 ## The intermediates directory.  Where object files go for
 ## a given target.  We could technically get away without
 ## the "_intermediates" suffix on the directory, but it's
@@ -410,6 +413,7 @@ endef
 # $(2): target name, like "NotePad"
 # $(3): if non-empty, this is a HOST target.
 # $(4): if non-empty, force the intermediates to be COMMON
+# $(5): if non-empty, force the intermedistes to be for the 2nd arch
 define intermediates-dir-for
 $(strip \
     $(eval _idfClass := $(strip $(1))) \
@@ -419,10 +423,13 @@ $(strip \
     $(if $(_idfName),, \
         $(error $(LOCAL_PATH): Name not defined in call to intermediates-dir-for)) \
     $(eval _idfPrefix := $(if $(strip $(3)),HOST,TARGET)) \
+    $(eval _idf2ndArchPrefix := $(if $(call directory_is_64_bit_blacklisted,$(LOCAL_PATH))$(strip $(5)),$(TARGET_2ND_ARCH_VAR_PREFIX))) \
     $(if $(filter $(_idfPrefix)-$(_idfClass),$(COMMON_MODULE_CLASSES))$(4), \
         $(eval _idfIntBase := $($(_idfPrefix)_OUT_COMMON_INTERMEDIATES)) \
-      , \
-        $(eval _idfIntBase := $($(_idfPrefix)_OUT_INTERMEDIATES)) \
+      ,$(if $(filter $(_idfPrefix)-$(_idfClass),TARGET-SHARED_LIBRARIES TARGET-STATIC_LIBRARIES TARGET-EXECUTABLES TARGET-GYP),\
+          $(eval _idfIntBase := $($(_idf2ndArchPrefix)$(_idfPrefix)_OUT_INTERMEDIATES)) \
+       ,$(eval _idfIntBase := $($(_idfPrefix)_OUT_INTERMEDIATES)) \
+       ) \
      ) \
     $(_idfIntBase)/$(_idfClass)/$(_idfName)_intermediates \
 )
@@ -432,13 +439,59 @@ endef
 # to determine the intermediates directory.
 #
 # $(1): if non-empty, force the intermediates to be COMMON
+# $(2): if non-empty, force the intermediates to be for the 2nd arch
 define local-intermediates-dir
 $(strip \
     $(if $(strip $(LOCAL_MODULE_CLASS)),, \
         $(error $(LOCAL_PATH): LOCAL_MODULE_CLASS not defined before call to local-intermediates-dir)) \
     $(if $(strip $(LOCAL_MODULE)),, \
         $(error $(LOCAL_PATH): LOCAL_MODULE not defined before call to local-intermediates-dir)) \
-    $(call intermediates-dir-for,$(LOCAL_MODULE_CLASS),$(LOCAL_MODULE),$(LOCAL_IS_HOST_MODULE),$(1)) \
+    $(call intermediates-dir-for,$(LOCAL_MODULE_CLASS),$(LOCAL_MODULE),$(LOCAL_IS_HOST_MODULE),$(1),$(2)) \
+)
+endef
+
+###########################################################
+## The generated sources directory.  Placing generated
+## source files directly in the intermediates directory
+## causes problems for multiarch builds, where there are
+## two intermediates directories for a single target. Put
+## them in a separate directory, and they will be copied to
+## each intermediates directory automatically.
+###########################################################
+
+# $(1): target class, like "APPS"
+# $(2): target name, like "NotePad"
+# $(3): if non-empty, this is a HOST target.
+# $(4): if non-empty, force the generated sources to be COMMON
+define generated-sources-dir-for
+$(strip \
+    $(eval _idfClass := $(strip $(1))) \
+    $(if $(_idfClass),, \
+        $(error $(LOCAL_PATH): Class not defined in call to generated-sources-dir-for)) \
+    $(eval _idfName := $(strip $(2))) \
+    $(if $(_idfName),, \
+        $(error $(LOCAL_PATH): Name not defined in call to generated-sources-dir-for)) \
+    $(eval _idfPrefix := $(if $(strip $(3)),HOST,TARGET)) \
+    $(if $(filter $(_idfPrefix)-$(_idfClass),$(COMMON_MODULE_CLASSES))$(4), \
+        $(eval _idfIntBase := $($(_idfPrefix)_OUT_GEN_COMMON)) \
+      , \
+        $(eval _idfIntBase := $($(_idfPrefix)_OUT_GEN)) \
+     ) \
+    $(_idfIntBase)/$(_idfClass)/$(_idfName)_intermediates \
+)
+endef
+
+# Uses LOCAL_MODULE_CLASS, LOCAL_MODULE, and LOCAL_IS_HOST_MODULE
+# to determine the generated sources directory.
+#
+# $(1): if non-empty, force the intermediates to be COMMON
+define local-generated-sources-dir
+$(strip \
+    $(if $(strip $(LOCAL_MODULE_CLASS)),, \
+        $(error $(LOCAL_PATH): LOCAL_MODULE_CLASS not defined before call to local-generated-sources-dir)) \
+    $(if $(strip $(LOCAL_MODULE)),, \
+        $(error $(LOCAL_PATH): LOCAL_MODULE not defined before call to local-generated-sources-dir)) \
+    $(call generated-sources-dir-for,$(LOCAL_MODULE_CLASS),$(LOCAL_MODULE),$(LOCAL_IS_HOST_MODULE),$(1)) \
 )
 endef
 
@@ -797,7 +850,6 @@ echo '#ifndef '$(@F:$1=_h) > $(@:$1=.h)
 echo '#define '$(@F:$1=_h) >> $(@:$1=.h)
 cat $(@:$1=$(YACC_HEADER_SUFFIX)) >> $(@:$1=.h)
 echo '#endif' >> $(@:$1=.h)
-rm -f $(@:$1=$(YACC_HEADER_SUFFIX))
 endef
 
 ###########################################################
@@ -1016,11 +1068,11 @@ $(hide) $(PRIVATE_CXX) \
 	    $(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
 	        $(filter-out $(PRIVATE_C_INCLUDES), \
 	            $(HOST_PROJECT_INCLUDES) \
-	            $(HOST_C_INCLUDES)))) \
+	            $(PRIVATE_HOST_C_INCLUDES)))) \
 	-c \
 	$(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
-	    $(HOST_GLOBAL_CFLAGS) \
-	    $(HOST_GLOBAL_CPPFLAGS) \
+	    $(PRIVATE_HOST_GLOBAL_CFLAGS) \
+	    $(PRIVATE_HOST_GLOBAL_CPPFLAGS) \
 	 ) \
 	$(PRIVATE_CFLAGS) \
 	$(PRIVATE_CPPFLAGS) \
@@ -1044,10 +1096,10 @@ $(hide) $(PRIVATE_CC) \
 	    $(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
 	        $(filter-out $(PRIVATE_C_INCLUDES), \
 	            $(HOST_PROJECT_INCLUDES) \
-	            $(HOST_C_INCLUDES)))) \
+	            $(PRIVATE_HOST_C_INCLUDES)))) \
 	-c \
 	$(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
-	    $(HOST_GLOBAL_CFLAGS) \
+	    $(PRIVATE_HOST_GLOBAL_CFLAGS) \
 	 ) \
 	$(1) \
 	-MD -MF $(patsubst %.o,%.d,$@) -o $@ $<
@@ -1119,10 +1171,11 @@ $(hide) ldir=$(PRIVATE_INTERMEDIATES_DIR)/WHOLE/$(basename $(notdir $(1)))_objs;
     mkdir -p $$ldir; \
     filelist=; \
     for f in `$(TARGET_AR) t $(1)`; do \
-        $(TARGET_AR) p $(1) $$f > $$ldir/$$f; \
+        $($(PRIVATE_2ND_ARCH_VAR_PREFIX)TARGET_AR) p $(1) $$f > $$ldir/$$f; \
         filelist="$$filelist $$ldir/$$f"; \
     done ; \
-    $(TARGET_AR) $(TARGET_GLOBAL_ARFLAGS) $(PRIVATE_ARFLAGS) $@ $$filelist
+    $($(PRIVATE_2ND_ARCH_VAR_PREFIX)TARGET_AR) $($(PRIVATE_2ND_ARCH_VAR_PREFIX)TARGET_GLOBAL_ARFLAGS) \
+        $(PRIVATE_ARFLAGS) $@ $$filelist
 
 endef
 
@@ -1138,7 +1191,8 @@ define transform-o-to-static-lib
 @rm -f $@
 $(extract-and-include-target-whole-static-libs)
 @echo "target StaticLib: $(PRIVATE_MODULE) ($@)"
-$(call split-long-arguments,$(TARGET_AR) $(TARGET_GLOBAL_ARFLAGS) $(PRIVATE_ARFLAGS) $@,$(filter %.o, $^))
+$(call split-long-arguments,$($(PRIVATE_2ND_ARCH_VAR_PREFIX)TARGET_AR) $($(PRIVATE_2ND_ARCH_VAR_PREFIX)TARGET_GLOBAL_ARFLAGS) \
+    $(PRIVATE_ARFLAGS) $@,$(filter %.o, $^))
 endef
 
 ###########################################################
@@ -1188,11 +1242,11 @@ $(hide) $(PRIVATE_CXX) \
 	-Wl,-rpath-link=$(HOST_OUT_INTERMEDIATE_LIBRARIES) \
 	-Wl,-rpath,\$$ORIGIN/../lib \
 	-shared -Wl,-soname,$(notdir $@) \
-	$(PRIVATE_LDFLAGS) \
 	$(HOST_GLOBAL_LD_DIRS) \
 	$(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
-	   $(HOST_GLOBAL_LDFLAGS) \
+	   $(PRIVATE_HOST_GLOBAL_LDFLAGS) \
 	) \
+	$(PRIVATE_LDFLAGS) \
 	$(PRIVATE_ALL_OBJECTS) \
 	-Wl,--whole-archive \
 	$(call normalize-host-libraries,$(PRIVATE_ALL_WHOLE_STATIC_LIBRARIES)) \
@@ -1238,7 +1292,7 @@ ifneq ($(TARGET_CUSTOM_LD_COMMAND),true)
 define transform-o-to-shared-lib-inner
 $(hide) $(PRIVATE_CXX) \
 	$(PRIVATE_TARGET_GLOBAL_LDFLAGS) \
-	-Wl,-rpath-link=$(TARGET_OUT_INTERMEDIATE_LIBRARIES) \
+	-Wl,-rpath-link=$(PRIVATE_TARGET_OUT_INTERMEDIATE_LIBRARIES) \
 	-Wl,-rpath,\$$ORIGIN/../lib \
 	-shared -Wl,-soname,$(notdir $@) \
 	$(PRIVATE_LDFLAGS) \
@@ -1259,13 +1313,7 @@ endif
 define transform-o-to-shared-lib
 @mkdir -p $(dir $@)
 @echo "target SharedLib: $(PRIVATE_MODULE) ($@)"
-$(transform-o-to-shared-lib-inner)
-endef
-
-define transform-o-to-package
-@mkdir -p $(dir $@)
-@echo "target Package: $(PRIVATE_MODULE) ($@)"
-$(transform-o-to-shared-lib-inner)
+$($(PRIVATE_2ND_ARCH_VAR_PREFIX)transform-o-to-shared-lib-inner)
 endef
 
 
@@ -1273,10 +1321,23 @@ endef
 ## Commands for filtering a target executable or library
 ###########################################################
 
+ifneq ($(TARGET_BUILD_VARIANT),user)
+  TARGET_STRIP_EXTRA = && $(PRIVATE_OBJCOPY) --add-gnu-debuglink=$< $@
+  TARGET_STRIP_KEEP_SYMBOLS_EXTRA = --add-gnu-debuglink=$<
+endif
+
 define transform-to-stripped
 @mkdir -p $(dir $@)
 @echo "target Strip: $(PRIVATE_MODULE) ($@)"
-$(hide) $(TARGET_STRIP_COMMAND)
+$(hide) $(PRIVATE_STRIP) --strip-all $< -o $@ $(TARGET_STRIP_EXTRA)
+endef
+
+define transform-to-stripped-keep-symbols
+@mkdir -p $(dir $@)
+@echo "target Strip (keep symbols): $(PRIVATE_MODULE) ($@)"
+$(hide) $(PRIVATE_OBJCOPY) \
+    `$(PRIVATE_READELF) -S $< | awk '/.debug_/ {print "-R " $$2}' | xargs` \
+    $(TARGET_STRIP_KEEP_SYMBOLS_EXTRA) $< $@
 endef
 
 
@@ -1289,7 +1350,7 @@ define transform-o-to-executable-inner
 $(hide) $(PRIVATE_CXX) \
 	$(PRIVATE_TARGET_GLOBAL_LDFLAGS) \
 	$(PRIVATE_TARGET_GLOBAL_LD_DIRS) \
-	-Wl,-rpath-link=$(TARGET_OUT_INTERMEDIATE_LIBRARIES) \
+	-Wl,-rpath-link=$(PRIVATE_TARGET_OUT_INTERMEDIATE_LIBRARIES) \
 	-Wl,-rpath,\$$ORIGIN/../lib \
 	$(PRIVATE_LDFLAGS) \
 	$(PRIVATE_ALL_OBJECTS) \
@@ -1308,7 +1369,7 @@ endif
 define transform-o-to-executable
 @mkdir -p $(dir $@)
 @echo "target Executable: $(PRIVATE_MODULE) ($@)"
-$(transform-o-to-executable-inner)
+$($(PRIVATE_2ND_ARCH_VAR_PREFIX)transform-o-to-executable-inner)
 endef
 
 
@@ -1327,13 +1388,18 @@ endif
 define transform-o-to-static-executable
 @mkdir -p $(dir $@)
 @echo "target StaticExecutable: $(PRIVATE_MODULE) ($@)"
-$(transform-o-to-static-executable-inner)
+$($(PRIVATE_2ND_ARCH_VAR_PREFIX)transform-o-to-static-executable-inner)
 endef
 
 
 ###########################################################
 ## Commands for running gcc to link a host executable
 ###########################################################
+ifdef BUILD_HOST_static
+HOST_FPIE_FLAGS :=
+else
+HOST_FPIE_FLAGS := -fPIE -pie
+endif
 
 ifneq ($(HOST_CUSTOM_LD_COMMAND),true)
 define transform-host-o-to-executable-inner
@@ -1349,10 +1415,11 @@ $(hide) $(PRIVATE_CXX) \
 	-Wl,-rpath-link=$(HOST_OUT_INTERMEDIATE_LIBRARIES) \
 	-Wl,-rpath,\$$ORIGIN/../lib \
 	$(HOST_GLOBAL_LD_DIRS) \
-	$(PRIVATE_LDFLAGS) \
 	$(if $(PRIVATE_NO_DEFAULT_COMPILER_FLAGS),, \
-		$(HOST_GLOBAL_LDFLAGS) \
+		$(PRIVATE_HOST_GLOBAL_LDFLAGS) \
+		$(HOST_FPIE_FLAGS) \
 	) \
+	$(PRIVATE_LDFLAGS) \
 	-o $@ \
 	$(PRIVATE_LDLIBS)
 endef
@@ -1511,6 +1578,10 @@ $(if $(PRIVATE_JAR_EXCLUDE_FILES), $(hide) find $(PRIVATE_CLASS_INTERMEDIATES_DI
     -name $(word 1, $(PRIVATE_JAR_EXCLUDE_FILES)) \
     $(addprefix -o -name , $(wordlist 2, 999, $(PRIVATE_JAR_EXCLUDE_FILES))) \
     | xargs rm -rf)
+$(if $(PRIVATE_JAR_PACKAGES), $(hide) find $(PRIVATE_CLASS_INTERMEDIATES_DIR) -mindepth 1 -type d \
+    $(foreach pkg, $(PRIVATE_JAR_PACKAGES), \
+        -not -path $(PRIVATE_CLASS_INTERMEDIATES_DIR)/$(subst .,/,$(pkg))) \
+    | xargs rm -rf)
 $(hide) jar $(if $(strip $(PRIVATE_JAR_MANIFEST)),-cfm,-cf) \
     $@ $(PRIVATE_JAR_MANIFEST) -C $(PRIVATE_CLASS_INTERMEDIATES_DIR) .
 endef
@@ -1557,6 +1628,10 @@ $(hide) rm -f $@
 $(if $(PRIVATE_JAR_EXCLUDE_FILES), $(hide) find $(PRIVATE_CLASS_INTERMEDIATES_DIR) \
     -name $(word 1, $(PRIVATE_JAR_EXCLUDE_FILES)) \
     $(addprefix -o -name , $(wordlist 2, 999, $(PRIVATE_JAR_EXCLUDE_FILES))) \
+    | xargs rm -rf)
+$(if $(PRIVATE_JAR_PACKAGES), $(hide) find $(PRIVATE_CLASS_INTERMEDIATES_DIR) -mindepth 1 -type d \
+    $(foreach pkg, $(PRIVATE_JAR_PACKAGES), \
+        -not -path $(PRIVATE_CLASS_INTERMEDIATES_DIR)/$(subst .,/,$(pkg))) \
     | xargs rm -rf)
 $(hide) jar $(if $(strip $(PRIVATE_JAR_MANIFEST)),-cfm,-cf) \
     $@ $(PRIVATE_JAR_MANIFEST) -C $(PRIVATE_CLASS_INTERMEDIATES_DIR) .
@@ -1716,35 +1791,6 @@ $(if $(PRIVATE_EXTRA_JAR_ARGS), $(call add-java-resources-to-package))
 endef
 
 ###########################################################
-## Obfuscate a jar file
-###########################################################
-
-# PRIVATE_KEEP_FILE is a file containing a list of classes
-# PRIVATE_INTERMEDIATES_DIR is a directory we can use for temporary files
-# The module using this must depend on
-#        $(HOST_OUT_JAVA_LIBRARIES)/proguard-4.0.1.jar
-define obfuscate-jar
-@echo "Obfuscate jar: $(notdir $@) ($@)"
-@mkdir -p $(dir $@)
-@rm -f $@
-@mkdir -p $(PRIVATE_INTERMEDIATES_DIR)
-$(hide) sed -e 's/^/-keep class /' < $(PRIVATE_KEEP_FILE) > \
-		$(PRIVATE_INTERMEDIATES_DIR)/keep.pro
-$(hide) java -Xmx512M -jar $(HOST_OUT_JAVA_LIBRARIES)/proguard-4.0.1.jar \
-		-injars $< \
-		-outjars $@ \
-		-target 1.5 \
-		-dontnote -dontwarn \
-		-printmapping $(PRIVATE_INTERMEDIATES_DIR)/out.map \
-		-forceprocessing \
-		-renamesourcefileattribute SourceFile \
-		-keepattributes Exceptions,InnerClasses,Signature,Deprecated,SourceFile,LineNumberTable,*Annotation*,EnclosingMethod \
-		-repackageclasses \
-		-keepclassmembers "class * { public protected *; }" \
-		@$(PRIVATE_INTERMEDIATES_DIR)/keep.pro
-endef
-
-###########################################################
 ## Commands for copying files
 ###########################################################
 
@@ -1887,33 +1933,10 @@ endif
 ###########################################################
 ## Commands to call Proguard
 ###########################################################
-
-# Command to copy the file with acp, if proguard is disabled.
-define proguard-disabled-commands
-@echo Copying: $@
-$(hide) $(ACP) -fp $< $@
-endef
-
-# Command to call Proguard
-# $(1): extra flags for instrumentation.
-define proguard-enabled-commands
-@echo Proguard: $@
-$(hide) $(PROGUARD) -injars $< -outjars $@ $(PRIVATE_PROGUARD_FLAGS) $(1)
-endef
-
-# Figure out the proguard dictionary file of the module that is instrumentationed for.
-define get-instrumentation-proguard-flags
-$(if $(PRIVATE_INSTRUMENTATION_FOR),$(if $(ALL_MODULES.$(PRIVATE_INSTRUMENTATION_FOR).PROGUARD_ENABLED),-applymapping $(call intermediates-dir-for,APPS,$(PRIVATE_INSTRUMENTATION_FOR),,COMMON)/proguard_dictionary))
-endef
-
 define transform-jar-to-proguard
-$(eval _instrumentation_proguard_flags:=$(call get-instrumentation-proguard-flags))
-$(eval _enable_proguard:=$(PRIVATE_PROGUARD_ENABLED)$(_instrumentation_proguard_flags))
-$(if $(_enable_proguard),$(call proguard-enabled-commands,$(_instrumentation_proguard_flags)),$(call proguard-disabled-commands))
-$(eval _instrumentation_proguard_flags:=)
-$(eval _enable_proguard:=)
+@echo Proguard: $@
+$(hide) $(PROGUARD) -injars $< -outjars $@ $(PRIVATE_PROGUARD_FLAGS)
 endef
-
 
 ###########################################################
 ## Stuff source generated from one-off tools
@@ -1999,6 +2022,7 @@ endef
 ###########################################################
 ## Define device-specific radio files
 ###########################################################
+INSTALLED_RADIOIMAGE_TARGET :=
 
 # Copy a radio image file to the output location, and add it to
 # INSTALLED_RADIOIMAGE_TARGET.
@@ -2139,6 +2163,13 @@ endif
 # $(3): LOCAL_PATH
 define include-if-build-from-source
 $(if $(call if-build-from-source,$(2),$(3)),$(eval include $(1)))
+endef
+
+## Return the arch for the source file of a prebuilt
+# $(1) the list of archs supported by the prebuilt
+define get-prebuilt-src-arch
+$(strip $(if $(filter $(TARGET_ARCH),$(1)),$(TARGET_ARCH),\
+  $(if $(filter $(TARGET_2ND_ARCH),$(1)),$(TARGET_2ND_ARCH))))
 endef
 
 ###########################################################

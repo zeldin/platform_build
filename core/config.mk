@@ -78,7 +78,16 @@ BUILD_DROIDDOC:= $(BUILD_SYSTEM)/droiddoc.mk
 BUILD_COPY_HEADERS := $(BUILD_SYSTEM)/copy_headers.mk
 BUILD_NATIVE_TEST := $(BUILD_SYSTEM)/native_test.mk
 BUILD_HOST_NATIVE_TEST := $(BUILD_SYSTEM)/host_native_test.mk
+
+BUILD_SHARED_TEST_LIBRARY := $(BUILD_SYSTEM)/shared_test_lib.mk
+BUILD_HOST_SHARED_TEST_LIBRARY := $(BUILD_SYSTEM)/host_shared_test_lib.mk
+BUILD_STATIC_TEST_LIBRARY := $(BUILD_SYSTEM)/static_test_lib.mk
+BUILD_HOST_STATIC_TEST_LIBRARY := $(BUILD_SYSTEM)/host_static_test_lib.mk
+
 BUILD_NOTICE_FILE := $(BUILD_SYSTEM)/notice_files.mk
+BUILD_HOST_DALVIK_JAVA_LIBRARY := $(BUILD_SYSTEM)/host_dalvik_java_library.mk
+BUILD_HOST_DALVIK_STATIC_JAVA_LIBRARY := $(BUILD_SYSTEM)/host_dalvik_static_java_library.mk
+
 
 -include cts/build/config.mk
 
@@ -114,16 +123,13 @@ TARGET_ERROR_FLAGS := -Werror=return-type -Werror=non-virtual-dtor -Werror=addre
 # TODO: do symbol compression
 TARGET_COMPRESS_MODULE_SYMBOLS := false
 
-# Default shell is mksh. Other possible value is ash.
-TARGET_SHELL := mksh
-
 # ###############################################################
 # Include sub-configuration files
 # ###############################################################
 
 # ---------------------------------------------------------------
 # Try to include buildspec.mk, which will try to set stuff up.
-# If this file doesn't exist, the environemnt variables will
+# If this file doesn't exist, the environment variables will
 # be used, and if that doesn't work, then the default is an
 # arm build
 ifndef ANDROID_BUILDSPEC
@@ -135,29 +141,6 @@ endif
 # Define most of the global variables.  These are the ones that
 # are specific to the user's build configuration.
 include $(BUILD_SYSTEM)/envsetup.mk
-
-# Boards may be defined under $(SRC_TARGET_DIR)/board/$(TARGET_DEVICE)
-# or under vendor/*/$(TARGET_DEVICE).  Search in both places, but
-# make sure only one exists.
-# Real boards should always be associated with an OEM vendor.
-board_config_mk := \
-	$(strip $(wildcard \
-		$(SRC_TARGET_DIR)/board/$(TARGET_DEVICE)/BoardConfig.mk \
-		$(shell test -d device && find device -maxdepth 4 -path '*/$(TARGET_DEVICE)/BoardConfig.mk') \
-		$(shell test -d vendor && find vendor -maxdepth 4 -path '*/$(TARGET_DEVICE)/BoardConfig.mk') \
-	))
-ifeq ($(board_config_mk),)
-  $(error No config file found for TARGET_DEVICE $(TARGET_DEVICE))
-endif
-ifneq ($(words $(board_config_mk)),1)
-  $(error Multiple board config files for TARGET_DEVICE $(TARGET_DEVICE): $(board_config_mk))
-endif
-include $(board_config_mk)
-ifeq ($(TARGET_ARCH),)
-  $(error TARGET_ARCH not defined by board config: $(board_config_mk))
-endif
-TARGET_DEVICE_DIR := $(patsubst %/,%,$(dir $(board_config_mk)))
-board_config_mk :=
 
 # The build system exposes several variables for where to find the kernel
 # headers:
@@ -231,13 +214,22 @@ build/core/combo/include/arch/$(1)/AndroidConfig.h
 endef
 
 combo_target := HOST_
+combo_2nd_arch_prefix :=
 include $(BUILD_SYSTEM)/combo/select.mk
 
 # on windows, the tools have .exe at the end, and we depend on the
 # host config stuff being done first
 
 combo_target := TARGET_
+combo_2nd_arch_prefix :=
 include $(BUILD_SYSTEM)/combo/select.mk
+
+# Load the 2nd target arch if it's needed.
+ifdef TARGET_2ND_ARCH
+combo_target := TARGET_
+combo_2nd_arch_prefix := $(TARGET_2ND_ARCH_VAR_PREFIX)
+include $(BUILD_SYSTEM)/combo/select.mk
+endif
 
 # Compute TARGET_TOOLCHAIN_ROOT from TARGET_TOOLS_PREFIX
 # if only TARGET_TOOLS_PREFIX is passed to the make command.
@@ -247,11 +239,33 @@ TARGET_TOOLCHAIN_ROOT := $(patsubst %/, %, $(dir $(TARGET_TOOLCHAIN_ROOT)))
 TARGET_TOOLCHAIN_ROOT := $(wildcard $(TARGET_TOOLCHAIN_ROOT))
 endif
 
-# Disable WITH_SYNTAX_CHECK if tool can't be found
-SYNTAX_TOOLS_PREFIX := prebuilts/clang/$(HOST_PREBUILT_TAG)/host/3.3/bin
+# Normalize WITH_STATIC_ANALYZER and WITH_SYNTAX_CHECK
+ifeq ($(strip $(WITH_STATIC_ANALYZER)),0)
+  WITH_STATIC_ANALYZER :=
+endif
+ifeq ($(strip $(WITH_SYNTAX_CHECK)),0)
+  WITH_SYNTAX_CHECK :=
+endif
+
+# Disable WITH_STATIC_ANALYZER and WITH_SYNTAX_CHECK if tool can't be found
+SYNTAX_TOOLS_PREFIX := prebuilts/misc/$(HOST_PREBUILT_TAG)/analyzer/bin
+ifneq ($(strip $(WITH_STATIC_ANALYZER)),)
+  ifeq ($(wildcard $(SYNTAX_TOOLS_PREFIX)/ccc-analyzer),)
+    $(warning *** Disable WITH_STATIC_ANALYZER because $(SYNTAX_TOOLS_PREFIX)/ccc-analyzer does not exist)
+    WITH_STATIC_ANALYZER :=
+  endif
+endif
 ifneq ($(strip $(WITH_SYNTAX_CHECK)),)
   ifeq ($(wildcard $(SYNTAX_TOOLS_PREFIX)/ccc-syntax),)
     $(warning *** Disable WITH_SYNTAX_CHECK because $(SYNTAX_TOOLS_PREFIX)/ccc-syntax does not exist)
+    WITH_SYNTAX_CHECK :=
+  endif
+endif
+
+# WITH_STATIC_ANALYZER trumps WITH_SYNTAX_CHECK
+ifneq ($(strip $(WITH_STATIC_ANALYZER)),)
+  ifneq ($(strip $(WITH_SYNTAX_CHECK)),)
+    $(warning *** Disable WITH_SYNTAX_CHECK in the presence of static analyzer WITH_STATIC_ANALYZER)
     WITH_SYNTAX_CHECK :=
   endif
 endif
@@ -322,8 +336,6 @@ PROGUARD := external/proguard/bin/proguard.sh
 JAVATAGS := build/tools/java-event-log-tags.py
 LLVM_RS_CC := $(HOST_OUT_EXECUTABLES)/llvm-rs-cc$(HOST_EXECUTABLE_SUFFIX)
 BCC_COMPAT := $(HOST_OUT_EXECUTABLES)/bcc_compat$(HOST_EXECUTABLE_SUFFIX)
-DEXOPT := $(HOST_OUT_EXECUTABLES)/dexopt$(HOST_EXECUTABLE_SUFFIX)
-DEXPREOPT := dalvik/tools/dex-preopt
 LINT := prebuilts/sdk/tools/lint
 
 # ACP is always for the build OS, not for the host OS
@@ -347,16 +359,20 @@ endif
 OLD_FLEX := prebuilts/misc/$(HOST_PREBUILT_TAG)/flex/flex-2.5.4a$(HOST_EXECUTABLE_SUFFIX)
 
 ifeq ($(HOST_OS),darwin)
-# Mac OS' screwy version of java uses a non-standard directory layout
-# and doesn't even seem to have tools.jar.  On the other hand, javac seems
-# to be able to magically find the classes in there, wherever they are, so
-# leave this blank
+ifneq ($(EXPERIMENTAL_USE_JAVA7),)
+HOST_JDK_TOOLS_JAR:= $(shell $(BUILD_SYSTEM)/find-jdk-tools-jar.sh)
+else
+# Deliberately set to blank for Java 6 installations on MacOS. These
+# versions allegedly use a non-standard directory structure.
 HOST_JDK_TOOLS_JAR :=
+endif
 else
 HOST_JDK_TOOLS_JAR:= $(shell $(BUILD_SYSTEM)/find-jdk-tools-jar.sh)
+endif
+
+ifneq ($(HOST_JDK_TOOLS_JAR),)
 ifeq ($(wildcard $(HOST_JDK_TOOLS_JAR)),)
-$(error Error: could not find jdk tools.jar, please install JDK6, \
-    which you can download from java.sun.com)
+$(error Error: could not find jdk tools.jar, please check if your JDK was installed correctly)
 endif
 endif
 
@@ -421,8 +437,31 @@ HOST_GLOBAL_CPPFLAGS += $(HOST_RELEASE_CPPFLAGS)
 TARGET_GLOBAL_CFLAGS += $(TARGET_RELEASE_CFLAGS)
 TARGET_GLOBAL_CPPFLAGS += $(TARGET_RELEASE_CPPFLAGS)
 
-# define llvm tools and global flags
-include $(BUILD_SYSTEM)/llvm_config.mk
+ifdef TARGET_2ND_ARCH
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_GLOBAL_CFLAGS += $(COMMON_GLOBAL_CFLAGS)
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_RELEASE_CFLAGS += $(COMMON_RELEASE_CFLAGS)
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_GLOBAL_CPPFLAGS += $(COMMON_GLOBAL_CPPFLAGS)
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_RELEASE_CPPFLAGS += $(COMMON_RELEASE_CPPFLAGS)
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_GLOBAL_LD_DIRS += -L$($(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_INTERMEDIATE_LIBRARIES)
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_PROJECT_INCLUDES := $(TARGET_PROJECT_INCLUDES)
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_GLOBAL_CFLAGS += $(TARGET_ERROR_FLAGS)
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_GLOBAL_CPPFLAGS += $(TARGET_ERROR_FLAGS)
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_GLOBAL_CFLAGS += $($(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_RELEASE_CFLAGS)
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_GLOBAL_CPPFLAGS += $($(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_RELEASE_CPPFLAGS)
+endif
+
+# allow overriding default Java libraries on a per-target basis
+ifeq ($(TARGET_DEFAULT_JAVA_LIBRARIES),)
+  TARGET_DEFAULT_JAVA_LIBRARIES := core core-junit ext framework framework2
+endif
+
+DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES := default
+ifneq (,$(filter $(TARGET_CPU_VARIANT),cortex-a7 cortex-a15 krait))
+DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES := div
+endif
+
+# define clang/llvm tools and global flags
+include $(BUILD_SYSTEM)/clang/config.mk
 
 # ###############################################################
 # Collect a list of the SDK versions that we could compile against

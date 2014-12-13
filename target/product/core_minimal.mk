@@ -23,35 +23,21 @@ PRODUCT_DEVICE := generic
 PRODUCT_NAME := core
 
 PRODUCT_PACKAGES += \
-    ApplicationsProvider \
     BackupRestoreConfirmation \
     DownloadProvider \
-    DownloadProviderUi \
     HTMLViewer \
     MediaProvider \
     PackageInstaller \
     SettingsProvider \
     Shell \
-    apache-xml \
-    bouncycastle \
     bu \
-    cacerts \
     com.android.location.provider \
     com.android.location.provider.xml \
-    conscrypt \
-    core \
-    core-junit \
-    dalvikvm \
-    dexdeps \
-    dexdump \
-    dexlist \
-    dexopt \
-    dmtracedump \
+    com.android.media.remotedisplay \
+    com.android.media.remotedisplay.xml \
     drmserver \
-    dx \
-    ext \
     framework-res \
-    hprof-conv \
+    idmap \
     installd \
     ip \
     ip-up-vpn \
@@ -61,24 +47,39 @@ PRODUCT_PACKAGES += \
     keystore.default \
     libOpenMAXAL \
     libOpenSLES \
-    libcrypto \
     libdownmix \
-    libdvm \
     libdrmframework \
     libdrmframework_jni \
-    libexpat \
     libfilterfw \
-    libicui18n \
-    libicuuc \
-    libjavacore \
-    libnativehelper \
     libsqlite_jni \
-    libssl \
     libwilhelm \
-    libz \
+    logd \
     make_ext4fs \
     screencap \
     sensorservice \
     uiautomator
+
+# The order of PRODUCT_BOOT_JARS matters.
+PRODUCT_BOOT_JARS := \
+    core \
+    conscrypt \
+    okhttp \
+    core-junit \
+    bouncycastle \
+    ext \
+    framework \
+    framework2 \
+    android.policy \
+    services \
+    apache-xml \
+    webviewchromium
+
+PRODUCT_RUNTIMES := runtime_libart_default
+PRODUCT_RUNTIMES += runtime_libdvm
+
+PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
+    ro.zygote=zygote32
+PRODUCT_COPY_FILES += \
+    system/core/rootdir/init.zygote32.rc:root/init.zygote32.rc
 
 $(call inherit-product, $(SRC_TARGET_DIR)/product/base.mk)

@@ -35,7 +35,7 @@ else
     # We can't use xxx_OUT_STATIC_LIBRARIES because it points into
     # device-obj or host-obj.
     module_installed_filename := \
-        $(patsubst $(PRODUCT_OUT)%,%,$($(my_prefix)OUT_SHARED_LIBRARIES))/$(notdir $(LOCAL_BUILT_MODULE))
+        $(patsubst $(PRODUCT_OUT)%,%,$($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)OUT_SHARED_LIBRARIES))/$(notdir $(LOCAL_BUILT_MODULE))
   else
     ifeq ($(LOCAL_MODULE_CLASS),JAVA_LIBRARIES)
       # Stick the static java libraries with the regular java libraries.
@@ -72,6 +72,19 @@ ifdef LOCAL_INSTALLED_MODULE
 # dependency so we don't re-install a module when the NOTICE changes.
 $(LOCAL_INSTALLED_MODULE): | $(installed_notice_file)
 endif
+
+# To facilitate collecting NOTICE files for apps_only build,
+# we install the NOTICE file even if a module gets built but not installed,
+# because shared jni libraries won't be installed to the system image.
+ifdef TARGET_BUILD_APPS
+# for static Java libraries, we don't need to even build LOCAL_BUILT_MODULE,
+# but just javalib.jar in the common intermediate dir.
+ifeq ($(LOCAL_MODULE_CLASS),JAVA_LIBRARIES)
+$(intermediates.COMMON)/javalib.jar : | $(installed_notice_file)
+else
+$(LOCAL_BUILT_MODULE): | $(installed_notice_file)
+endif  # JAVA_LIBRARIES
+endif  # TARGET_BUILD_APPS
 
 else
 # NOTICE file does not exist

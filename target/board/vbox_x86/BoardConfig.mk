@@ -3,13 +3,11 @@
 #
 
 TARGET_ARCH=x86
-DISABLE_DEXPREOPT := true
 TARGET_COMPRESS_MODULE_SYMBOLS := false
 TARGET_NO_RECOVERY := true
 TARGET_HARDWARE_3D := false
 BOARD_USES_GENERIC_AUDIO := true
 USE_CAMERA_STUB := true
-TARGET_PROVIDES_INIT_RC := true
 TARGET_CPU_ABI := x86
 TARGET_USERIMAGES_USE_EXT4 := true
 TARGET_BOOTIMAGE_USE_EXT2 := true
@@ -33,6 +31,7 @@ TARGET_USERIMAGES_SPARSE_EXT_DISABLED := true
 # Reserve 265M  for the system partition
 BOARD_SYSTEMIMAGE_PARTITION_SIZE := 268435456
 
+WITH_DEXPREOPT := false
 
 # The eth0 device should be started with dhcp on boot.
 # Useful for emulators that don't provide a wifi connection.
