@@ -26,7 +26,7 @@ guessed_intermediates := $(call local-intermediates-dir,,$(LOCAL_2ND_ARCH_VAR_PR
 # The basename of this target must be the same as the final output
 # binary name, because it's used to set the "soname" in the binary.
 # The includer of this file will define a rule to build this target.
-linked_module := $(guessed_intermediates)/LINKED/$(LOCAL_BUILT_MODULE_STEM)
+linked_module := $(guessed_intermediates)/LINKED/$(my_built_module_stem)
 
 ALL_ORIGINAL_DYNAMIC_BINARIES += $(linked_module)
 
@@ -40,8 +40,6 @@ LOCAL_INTERMEDIATE_TARGETS := $(linked_module)
 ###################################
 include $(BUILD_SYSTEM)/binary.mk
 ###################################
-
-$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_2ND_ARCH_VAR_PREFIX := $(LOCAL_2ND_ARCH_VAR_PREFIX)
 
 # Make sure that our guess at the value of intermediates was correct.
 ifneq ($(intermediates),$(guessed_intermediates))
@@ -59,7 +57,7 @@ endif
 
 ifeq ($(LOCAL_COMPRESS_MODULE_SYMBOLS),true)
 $(error Symbol compression not yet supported.)
-compress_output := $(intermediates)/COMPRESSED-$(LOCAL_BUILT_MODULE_STEM)
+compress_output := $(intermediates)/COMPRESSED-$(my_built_module_stem)
 
 #TODO: write the real $(STRIPPER) rule.
 #TODO: define a rule to build TARGET_SYMBOL_FILTER_FILE, and
@@ -81,7 +79,7 @@ else
 my_unstripped_path := $(LOCAL_UNSTRIPPED_PATH)
 endif
 symbolic_input := $(compress_output)
-symbolic_output := $(my_unstripped_path)/$(LOCAL_INSTALLED_MODULE_STEM)
+symbolic_output := $(my_unstripped_path)/$(my_installed_module_stem)
 $(symbolic_output) : $(symbolic_input) | $(ACP)
 	@echo "target Symbolic: $(PRIVATE_MODULE) ($@)"
 	$(copy-file-to-target)

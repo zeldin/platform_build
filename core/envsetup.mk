@@ -40,16 +40,16 @@ UNAME := $(shell uname -sm)
 
 # HOST_OS
 ifneq (,$(findstring Linux,$(UNAME)))
-	HOST_OS := linux
+  HOST_OS := linux
 endif
 ifneq (,$(findstring Darwin,$(UNAME)))
-	HOST_OS := darwin
+  HOST_OS := darwin
 endif
 ifneq (,$(findstring Macintosh,$(UNAME)))
-	HOST_OS := darwin
+  HOST_OS := darwin
 endif
 ifneq (,$(findstring CYGWIN,$(UNAME)))
-	HOST_OS := windows
+  HOST_OS := windows
 endif
 
 # BUILD_OS is the real host doing the build.
@@ -58,8 +58,8 @@ BUILD_OS := $(HOST_OS)
 # Under Linux, if USE_MINGW is set, we change HOST_OS to Windows to build the
 # Windows SDK. Only a subset of tools and SDK will manage to build properly.
 ifeq ($(HOST_OS),linux)
-ifneq ($(USE_MINGW),)
-	HOST_OS := windows
+ifdef USE_MINGW
+  HOST_OS := windows
 endif
 endif
 
@@ -67,14 +67,11 @@ ifeq ($(HOST_OS),)
 $(error Unable to determine HOST_OS from uname -sm: $(UNAME)!)
 endif
 
-
 # HOST_ARCH
-ifneq (,$(findstring 86,$(UNAME)))
-	HOST_ARCH := x86
-endif
-
-ifneq (,$(findstring Power,$(UNAME)))
-	HOST_ARCH := ppc
+ifneq (,$(findstring x86_64,$(UNAME)))
+  HOST_ARCH := x86_64
+  HOST_2ND_ARCH := x86
+  HOST_IS_64_BIT := true
 endif
 
 ifneq (,$(findstring ppc,$(UNAME)))
@@ -82,6 +79,7 @@ ifneq (,$(findstring ppc,$(UNAME)))
 endif
 
 BUILD_ARCH := $(HOST_ARCH)
+BUILD_2ND_ARCH := $(HOST_2ND_ARCH)
 
 ifeq ($(HOST_ARCH),)
 $(error Unable to determine HOST_ARCH from uname -sm: $(UNAME)!)
@@ -98,12 +96,14 @@ $(error HOST_BUILD_TYPE must be either release or debug, not '$(HOST_BUILD_TYPE)
 endif
 endif
 
+# We don't want to move all the prebuilt host tools to a $(HOST_OS)-x86_64 dir.
+HOST_PREBUILT_ARCH := x86
 # This is the standard way to name a directory containing prebuilt host
 # objects. E.g., prebuilt/$(HOST_PREBUILT_TAG)/cc
 ifeq ($(HOST_OS),windows)
   HOST_PREBUILT_TAG := windows
 else
-  HOST_PREBUILT_TAG := $(HOST_OS)-$(HOST_ARCH)
+  HOST_PREBUILT_TAG := $(HOST_OS)-$(HOST_PREBUILT_ARCH)
 endif
 
 # TARGET_COPY_OUT_* are all relative to the staging directory, ie PRODUCT_OUT.
@@ -123,6 +123,17 @@ ifneq ($(build_variant)-$(words $(TARGET_BUILD_VARIANT)),-1)
 $(warning bad TARGET_BUILD_VARIANT: $(TARGET_BUILD_VARIANT))
 $(error must be empty or one of: eng user userdebug)
 endif
+
+# Build host as 32-bit for SDK build.
+ifneq ($(filter $(MAKECMDGOALS),win_sdk sdk),)
+HOST_PREFER_32_BIT := true
+endif
+ifdef USE_MINGW
+# We only build sdk host tools in the MinGW windows build.
+# Build it as 32-bit as well.
+HOST_PREFER_32_BIT := true
+endif
+SDK_HOST_ARCH := x86
 
 # Boards may be defined under $(SRC_TARGET_DIR)/board/$(TARGET_DEVICE)
 # or under vendor/*/$(TARGET_DEVICE).  Search in both places, but
@@ -147,28 +158,6 @@ endif
 TARGET_DEVICE_DIR := $(patsubst %/,%,$(dir $(board_config_mk)))
 board_config_mk :=
 
-# "ro.product.cpu.abilist" is a comma separated list of ABIs (in order
-# of preference) that the target supports. If a TARGET_CPU_ABI_LIST
-# is specified by the board configuration, we use that. If not, we
-# build a list out of the TARGET_CPU_ABIs specified by the config.
-ifeq (,$(TARGET_CPU_ABI_LIST))
-  TARGET_CPU_ABI_LIST := $(TARGET_CPU_ABI)
-  ifneq (,$(TARGET_CPU_ABI2))
-    TARGET_CPU_ABI_LIST += ,$(TARGET_CPU_ABI2)
-  endif
-  ifneq (,$(TARGET_2ND_CPU_ABI))
-    TARGET_CPU_ABI_LIST += ,$(TARGET_2ND_CPU_ABI)
-  endif
-  ifneq (,$(TARGET_2ND_CPU_ABI2))
-    TARGET_CPU_ABI_LIST += ,$(TARGET_2ND_CPU_ABI2)
-  endif
-
-  # Strip whitespace from the ABI list string.
-  empty :=
-  space := $(empty) $(empty)
-  TARGET_CPU_ABI_LIST := $(subst $(space),,$(TARGET_CPU_ABI_LIST))
-endif
-
 # ---------------------------------------------------------------
 # Set up configuration for target machine.
 # The following must be set:
@@ -177,6 +166,9 @@ endif
 
 TARGET_OS := linux
 # TARGET_ARCH should be set by BoardConfig.mk and will be checked later
+ifneq ($(filter %64,$(TARGET_ARCH)),)
+TARGET_IS_64_BIT := true
+endif
 
 # the target build type defaults to release
 ifneq ($(TARGET_BUILD_TYPE),debug)
@@ -206,11 +198,12 @@ HOST_OUT_ROOT_release := $(OUT_DIR)/host
 HOST_OUT_ROOT_debug := $(DEBUG_OUT_DIR)/host
 HOST_OUT_ROOT := $(HOST_OUT_ROOT_$(HOST_BUILD_TYPE))
 
-HOST_OUT_release := $(HOST_OUT_ROOT_release)/$(HOST_OS)-$(HOST_ARCH)
-HOST_OUT_debug := $(HOST_OUT_ROOT_debug)/$(HOST_OS)-$(HOST_ARCH)
+# We want to avoid two host bin directories in multilib build.
+HOST_OUT_release := $(HOST_OUT_ROOT_release)/$(HOST_OS)-$(HOST_PREBUILT_ARCH)
+HOST_OUT_debug := $(HOST_OUT_ROOT_debug)/$(HOST_OS)-$(HOST_PREBUILT_ARCH)
 HOST_OUT := $(HOST_OUT_$(HOST_BUILD_TYPE))
 
-BUILD_OUT := $(OUT_DIR)/host/$(BUILD_OS)-$(BUILD_ARCH)
+BUILD_OUT := $(OUT_DIR)/host/$(BUILD_OS)-$(HOST_PREBUILT_ARCH)
 
 TARGET_PRODUCT_OUT_ROOT := $(TARGET_OUT_ROOT)/product
 
@@ -224,7 +217,7 @@ OUT_DOCS := $(TARGET_COMMON_OUT_ROOT)/docs
 BUILD_OUT_EXECUTABLES := $(BUILD_OUT)/bin
 
 HOST_OUT_EXECUTABLES := $(HOST_OUT)/bin
-HOST_OUT_SHARED_LIBRARIES := $(HOST_OUT)/lib
+HOST_OUT_SHARED_LIBRARIES := $(HOST_OUT)/lib64
 HOST_OUT_JAVA_LIBRARIES := $(HOST_OUT)/framework
 HOST_OUT_SDK_ADDON := $(HOST_OUT)/sdk_addon
 
@@ -237,6 +230,22 @@ HOST_OUT_COMMON_INTERMEDIATES := $(HOST_COMMON_OUT_ROOT)/obj
 HOST_OUT_GEN := $(HOST_OUT)/gen
 HOST_OUT_COMMON_GEN := $(HOST_COMMON_OUT_ROOT)/gen
 
+# Out for HOST_2ND_ARCH
+HOST_2ND_ARCH_VAR_PREFIX := 2ND_
+HOST_2ND_ARCH_MODULE_SUFFIX := _32
+$(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_INTERMEDIATES := $(HOST_OUT)/obj32
+$(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_INTERMEDIATE_LIBRARIES := $($(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_INTERMEDIATES)/lib
+$(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_SHARED_LIBRARIES := $(HOST_OUT)/lib
+$(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_EXECUTABLES := $(HOST_OUT_EXECUTABLES)
+
+# The default host library path.
+# It always points to the path where we build libraries in the default bitness.
+ifeq ($(HOST_PREFER_32_BIT),true)
+HOST_LIBRARY_PATH := $($(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_SHARED_LIBRARIES)
+else
+HOST_LIBRARY_PATH := $(HOST_OUT_SHARED_LIBRARIES)
+endif
+
 TARGET_OUT_INTERMEDIATES := $(PRODUCT_OUT)/obj
 TARGET_OUT_HEADERS := $(TARGET_OUT_INTERMEDIATES)/include
 TARGET_OUT_INTERMEDIATE_LIBRARIES := $(TARGET_OUT_INTERMEDIATES)/lib
@@ -248,7 +257,7 @@ TARGET_OUT_COMMON_GEN := $(TARGET_COMMON_OUT_ROOT)/gen
 TARGET_OUT := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_SYSTEM)
 TARGET_OUT_EXECUTABLES := $(TARGET_OUT)/bin
 TARGET_OUT_OPTIONAL_EXECUTABLES := $(TARGET_OUT)/xbin
-ifneq ($(filter %64,$(TARGET_ARCH)),)
+ifeq ($(TARGET_IS_64_BIT),true)
 # /system/lib always contains 32-bit libraries,
 # and /system/lib64 (if present) always contains 64-bit libraries.
 TARGET_OUT_SHARED_LIBRARIES := $(TARGET_OUT)/lib64
@@ -265,8 +274,8 @@ TARGET_OUT_NOTICE_FILES := $(TARGET_OUT_INTERMEDIATES)/NOTICE_FILES
 TARGET_OUT_FAKE := $(PRODUCT_OUT)/fake_packages
 
 # Out for TARGET_2ND_ARCH
-TARGET_2ND_ARCH_VAR_PREFIX := 2ND_
-TARGET_2ND_ARCH_MODULE_SUFFIX := _32
+TARGET_2ND_ARCH_VAR_PREFIX := $(HOST_2ND_ARCH_VAR_PREFIX)
+TARGET_2ND_ARCH_MODULE_SUFFIX := $(HOST_2ND_ARCH_MODULE_SUFFIX)
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_INTERMEDIATES := $(PRODUCT_OUT)/obj_$(TARGET_2ND_ARCH)
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_INTERMEDIATE_LIBRARIES := $($(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_INTERMEDIATES)/lib
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_SHARED_LIBRARIES := $(TARGET_OUT)/lib
@@ -282,19 +291,24 @@ TARGET_OUT_DATA_APPS := $(TARGET_OUT_DATA)/app
 TARGET_OUT_DATA_KEYLAYOUT := $(TARGET_OUT_KEYLAYOUT)
 TARGET_OUT_DATA_KEYCHARS := $(TARGET_OUT_KEYCHARS)
 TARGET_OUT_DATA_ETC := $(TARGET_OUT_ETC)
+ifeq ($(TARGET_IS_64_BIT),true)
+TARGET_OUT_DATA_NATIVE_TESTS := $(TARGET_OUT_DATA)/nativetest64
+else
 TARGET_OUT_DATA_NATIVE_TESTS := $(TARGET_OUT_DATA)/nativetest
+endif
 TARGET_OUT_DATA_FAKE := $(TARGET_OUT_DATA)/fake_packages
 
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_DATA_EXECUTABLES := $(TARGET_OUT_DATA_EXECUTABLES)
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_DATA_SHARED_LIBRARIES := $($(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_SHARED_LIBRARIES)
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_DATA_APPS := $(TARGET_OUT_DATA_APPS)
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_DATA_NATIVE_TESTS := $(TARGET_OUT_DATA)/nativetest
 
 TARGET_OUT_CACHE := $(PRODUCT_OUT)/cache
 
 TARGET_OUT_VENDOR := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_VENDOR)
 TARGET_OUT_VENDOR_EXECUTABLES := $(TARGET_OUT_VENDOR)/bin
 TARGET_OUT_VENDOR_OPTIONAL_EXECUTABLES := $(TARGET_OUT_VENDOR)/xbin
-ifneq ($(filter %64,$(TARGET_ARCH)),)
+ifeq ($(TARGET_IS_64_BIT),true)
 TARGET_OUT_VENDOR_SHARED_LIBRARIES := $(TARGET_OUT_VENDOR)/lib64
 else
 TARGET_OUT_VENDOR_SHARED_LIBRARIES := $(TARGET_OUT_VENDOR)/lib

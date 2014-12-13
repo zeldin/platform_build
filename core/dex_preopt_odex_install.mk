@@ -9,11 +9,18 @@ ifneq (true,$(WITH_DEXPREOPT))
 else # WITH_DEXPREOPT=true
   ifeq (,$(TARGET_BUILD_APPS)) # TARGET_BUILD_APPS empty
     ifndef LOCAL_DEX_PREOPT # LOCAL_DEX_PREOPT undefined
-      ifeq (,$(LOCAL_APK_LIBRARIES)) # LOCAL_APK_LIBRARIES empty
-        LOCAL_DEX_PREOPT := $(DEX_PREOPT_DEFAULT)
-      else # LOCAL_APK_LIBRARIES not empty
-        LOCAL_DEX_PREOPT := nostripping
-      endif # LOCAL_APK_LIBRARIES not empty
+      ifneq ($(filter $(TARGET_OUT)/%,$(my_module_path)),) # Installed to system.img.
+        ifeq (,$(LOCAL_APK_LIBRARIES)) # LOCAL_APK_LIBRARIES empty
+          # If we have product-specific config for this module?
+          ifeq (disable,$(DEXPREOPT.$(TARGET_PRODUCT).$(LOCAL_MODULE).CONFIG))
+            LOCAL_DEX_PREOPT := false
+          else
+            LOCAL_DEX_PREOPT := $(DEX_PREOPT_DEFAULT)
+          endif
+        else # LOCAL_APK_LIBRARIES not empty
+          LOCAL_DEX_PREOPT := nostripping
+        endif # LOCAL_APK_LIBRARIES not empty
+      endif # Installed to system.img.
     endif # LOCAL_DEX_PREOPT undefined
   endif # TARGET_BUILD_APPS empty
 endif # WITH_DEXPREOPT=true
@@ -30,41 +37,89 @@ endif
 ifneq (,$(filter $(LOCAL_MODULE),$(PRODUCT_DEX_PREOPT_PACKAGES_IN_DATA)))
 LOCAL_DEX_PREOPT :=
 endif
+# if WITH_DEXPREOPT_BOOT_IMG_ONLY=true and module is not in boot class path skip
+ifeq (true,$(WITH_DEXPREOPT_BOOT_IMG_ONLY))
+ifeq ($(filter $(DEXPREOPT_BOOT_JARS_MODULES),$(LOCAL_MODULE)),)
+LOCAL_DEX_PREOPT :=
+endif
+endif
 
 built_odex :=
 installed_odex :=
+built_installed_odex :=
 ifdef LOCAL_DEX_PREOPT
 dexpreopt_boot_jar_module := $(filter $(DEXPREOPT_BOOT_JARS_MODULES),$(LOCAL_MODULE))
 ifdef dexpreopt_boot_jar_module
 ifeq ($(DALVIK_VM_LIB),libdvm.so)
 built_odex := $(basename $(LOCAL_BUILT_MODULE)).odex
 installed_odex := $(basename $(LOCAL_INSTALLED_MODULE)).odex
+built_installed_odex := $(built_odex):$(installed_odex)
 else # libdvm.so
 # For libart, the boot jars' odex files are replaced by $(DEFAULT_DEX_PREOPT_INSTALLED_IMAGE).
 # We use this installed_odex trick to get boot.art installed.
 installed_odex := $(DEFAULT_DEX_PREOPT_INSTALLED_IMAGE)
+# Append the odex for the 2nd arch if we have one.
+installed_odex += $($(TARGET_2ND_ARCH_VAR_PREFIX)DEFAULT_DEX_PREOPT_INSTALLED_IMAGE)
 endif # libdvm.so
 else  # boot jar
+ifeq ($(DALVIK_VM_LIB),libdvm.so)
 built_odex := $(basename $(LOCAL_BUILT_MODULE)).odex
 installed_odex := $(basename $(LOCAL_INSTALLED_MODULE)).odex
+built_installed_odex := $(built_odex):$(installed_odex)
 
-ifneq ($(DALVIK_VM_LIB),libdvm.so) # libart
-ifndef LOCAL_DEX_PREOPT_IMAGE
-LOCAL_DEX_PREOPT_IMAGE := $(DEFAULT_DEX_PREOPT_BUILT_IMAGE)
-endif
-endif # libart
-endif # boot jar
+$(built_odex) : $(DEXPREOPT_ONE_FILE_DEPENDENCY_BUILT_BOOT_PREOPT) \
+                $(DEXPREOPT_ONE_FILE_DEPENDENCY_TOOLS)
+else # libart
+ifeq ($(LOCAL_MODULE_CLASS),JAVA_LIBRARIES)
+# For a Java library, we build odex for both 1st arch and 2nd arch, if we have one.
+# #################################################
+# Odex for the 1st arch
+my_2nd_arch_prefix :=
+include $(BUILD_SYSTEM)/setup_one_odex.mk
+# #################################################
+# Odex for the 2nd arch
+ifdef TARGET_2ND_ARCH
+my_2nd_arch_prefix := $(TARGET_2ND_ARCH_VAR_PREFIX)
+include $(BUILD_SYSTEM)/setup_one_odex.mk
+endif  # TARGET_2ND_ARCH
+# #################################################
+else  # must be APPS
+# The preferred arch
+my_2nd_arch_prefix := $(LOCAL_2ND_ARCH_VAR_PREFIX)
+include $(BUILD_SYSTEM)/setup_one_odex.mk
+ifdef TARGET_2ND_ARCH
+ifeq ($(LOCAL_MULTILIB),both)
+# The non-preferred arch
+my_2nd_arch_prefix := $(if $(LOCAL_2ND_ARCH_VAR_PREFIX),,$(TARGET_2ND_ARCH_VAR_PREFIX))
+include $(BUILD_SYSTEM)/setup_one_odex.mk
+endif  # LOCAL_MULTILIB is both
+endif  # TARGET_2ND_ARCH
+endif  # LOCAL_MODULE_CLASS
+endif  # libart
+endif  # boot jar
 
 ifdef built_odex
-# We need $(LOCAL_BUILT_MODULE) in the deps to enforce reinstallation
-# even if $(built_odex) is byproduct of $(LOCAL_BUILT_MODULE), such as in package.mk.
-$(installed_odex) : $(built_odex) $(LOCAL_BUILT_MODULE) | $(ACP)
+ifndef LOCAL_DEX_PREOPT_FLAGS
+LOCAL_DEX_PREOPT_FLAGS := $(DEXPREOPT.$(TARGET_PRODUCT).$(LOCAL_MODULE).CONFIG)
+ifndef LOCAL_DEX_PREOPT_FLAGS
+LOCAL_DEX_PREOPT_FLAGS := $(PRODUCT_DEX_PREOPT_DEFAULT_FLAGS)
+endif
+endif
+$(built_odex): PRIVATE_DEX_PREOPT_FLAGS := $(LOCAL_DEX_PREOPT_FLAGS)
+
+# Use pattern rule - we may have multiple installed odex files.
+# Ugly syntax - See the definition get-odex-file-path.
+$(installed_odex) : $(dir $(LOCAL_INSTALLED_MODULE))%$(notdir $(word 1,$(installed_odex))) \
+                  : $(dir $(LOCAL_BUILT_MODULE))%$(notdir $(word 1,$(built_odex))) \
+    | $(ACP)
 	@echo "Install: $@"
 	$(copy-file-to-target)
 endif
 
 # Add the installed_odex to the list of installed files for this module.
-ALL_MODULES.$(LOCAL_MODULE).INSTALLED += $(installed_odex)
+ALL_MODULES.$(my_register_name).INSTALLED += $(installed_odex)
+ALL_MODULES.$(my_register_name).BUILT_INSTALLED += $(built_installed_odex)
+
 # Make sure to install the .odex when you run "make <module_name>"
 $(my_register_name): $(installed_odex)
 

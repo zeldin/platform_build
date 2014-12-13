@@ -18,15 +18,11 @@
 #
 # Inputs:
 #	combo_target -- prefix for final variables (HOST_ or TARGET_)
-#	combo_2nd_arch_prefix -- it's defined if this is loaded for TARGET_2ND_ARCH.
+#	combo_2nd_arch_prefix -- it's defined if this is loaded for the 2nd arch.
 #
 
 # Build a target string like "linux-arm" or "darwin-x86".
-ifdef combo_2nd_arch_prefix
-combo_os_arch := $($(combo_target)OS)-$(TARGET_2ND_ARCH)
-else
-combo_os_arch := $($(combo_target)OS)-$($(combo_target)ARCH)
-endif
+combo_os_arch := $($(combo_target)OS)-$($(combo_target)$(combo_2nd_arch_prefix)ARCH)
 
 combo_var_prefix := $(combo_2nd_arch_prefix)$(combo_target)
 
@@ -86,23 +82,43 @@ ifneq ($(USE_CCACHE),)
   # on a workstation.
   export CCACHE_BASEDIR := /
 
+  # Workaround for ccache with clang.
+  # See http://petereisentraut.blogspot.com/2011/09/ccache-and-clang-part-2.html
+  export CCACHE_CPP2 := true
+
   CCACHE_HOST_TAG := $(HOST_PREBUILT_TAG)
   # If we are cross-compiling Windows binaries on Linux
   # then use the linux ccache binary instead.
   ifeq ($(HOST_OS)-$(BUILD_OS),windows-linux)
-    CCACHE_HOST_TAG := linux-$(BUILD_ARCH)
+    CCACHE_HOST_TAG := linux-$(HOST_PREBUILT_ARCH)
   endif
   ccache := prebuilts/misc/$(CCACHE_HOST_TAG)/ccache/ccache
   # Check that the executable is here.
   ccache := $(strip $(wildcard $(ccache)))
   ifdef ccache
-    # prepend ccache if necessary
-    ifneq ($(ccache),$(firstword $($(combo_var_prefix)CC)))
-      $(combo_var_prefix)CC := $(ccache) $($(combo_var_prefix)CC)
+    ifndef CC_WRAPPER
+      CC_WRAPPER := $(ccache)
     endif
-    ifneq ($(ccache),$(firstword $($(combo_var_prefix)CXX)))
-      $(combo_var_prefix)CXX := $(ccache) $($(combo_var_prefix)CXX)
+    ifndef CXX_WRAPPER
+      CXX_WRAPPER := $(ccache)
     endif
     ccache =
+  endif
+endif
+
+# Stash the original values of CC and CXX so we can still use the non-wrapped
+# values later.
+$(combo_2nd_arch_prefix)CC_BARE := $($(combo_var_prefix)CC)
+$(combo_2nd_arch_prefix)CXX_BARE := $($(combo_var_prefix)CXX)
+
+# The C/C++ compiler can be wrapped by setting the CC/CXX_WRAPPER vars.
+ifdef CC_WRAPPER
+  ifneq ($(CC_WRAPPER),$(firstword $($(combo_var_prefix)CC)))
+    $(combo_var_prefix)CC := $(CC_WRAPPER) $($(combo_var_prefix)CC)
+  endif
+endif
+ifdef CXX_WRAPPER
+  ifneq ($(CXX_WRAPPER),$(firstword $($(combo_var_prefix)CXX)))
+    $(combo_var_prefix)CXX := $(CXX_WRAPPER) $($(combo_var_prefix)CXX)
   endif
 endif

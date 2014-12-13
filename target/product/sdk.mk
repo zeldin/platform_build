@@ -33,7 +33,6 @@ PRODUCT_PACKAGES := \
 	libWnnJpnDic \
 	libwnndict \
 	TeleService \
-	PinyinIME \
 	Protips \
 	SoftKeyboard \
 	SystemUI \
@@ -61,7 +60,9 @@ PRODUCT_PACKAGES := \
 	SmokeTestApp \
 	EmulatorSmokeTests \
 	rild \
-	LegacyCamera
+	LegacyCamera \
+	Dialer
+
 
 
 # Define the host tools and libs that are parts of the SDK.

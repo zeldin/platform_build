@@ -30,6 +30,7 @@ PRODUCT_PACKAGES += \
     PackageInstaller \
     SettingsProvider \
     Shell \
+    bcc \
     bu \
     com.android.location.provider \
     com.android.location.provider.xml \
@@ -61,7 +62,7 @@ PRODUCT_PACKAGES += \
 
 # The order of PRODUCT_BOOT_JARS matters.
 PRODUCT_BOOT_JARS := \
-    core \
+    core-libart \
     conscrypt \
     okhttp \
     core-junit \
@@ -71,11 +72,9 @@ PRODUCT_BOOT_JARS := \
     framework2 \
     android.policy \
     services \
-    apache-xml \
-    webviewchromium
+    apache-xml
 
 PRODUCT_RUNTIMES := runtime_libart_default
-PRODUCT_RUNTIMES += runtime_libdvm
 
 PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
     ro.zygote=zygote32

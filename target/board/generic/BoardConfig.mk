@@ -69,7 +69,7 @@ VSYNC_EVENT_PHASE_OFFSET_NS := 0
 
 TARGET_USERIMAGES_USE_EXT4 := true
 BOARD_SYSTEMIMAGE_PARTITION_SIZE := 576716800
-BOARD_USERDATAIMAGE_PARTITION_SIZE := 209715200
+BOARD_USERDATAIMAGE_PARTITION_SIZE := 576716800
 BOARD_CACHEIMAGE_PARTITION_SIZE := 69206016
 BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := ext4
 BOARD_FLASH_BLOCK_SIZE := 512
@@ -77,13 +77,16 @@ TARGET_USERIMAGES_SPARSE_EXT_DISABLED := true
 
 BOARD_SEPOLICY_DIRS += build/target/board/generic/sepolicy
 BOARD_SEPOLICY_UNION += \
-        adbd.te \
         bootanim.te \
         device.te \
         domain.te \
         file.te \
         file_contexts \
-        mediaserver.te \
+        goldfish_setup.te \
+        goldfish_logcat.te \
+        property.te \
+        property_contexts \
+        qemu_props.te \
         qemud.te \
         rild.te \
         shell.te \

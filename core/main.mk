@@ -92,8 +92,6 @@ include $(BUILD_SYSTEM)/help.mk
 # and host information.
 include $(BUILD_SYSTEM)/config.mk
 
-include $(BUILD_SYSTEM)/64_bit_blacklist.mk
-
 # This allows us to force a clean build - included after the config.mk
 # environment setup is done, but before we generate any dependencies.  This
 # file does the rm -rf inline so the deps which are all done below will
@@ -103,14 +101,13 @@ include $(BUILD_SYSTEM)/cleanbuild.mk
 # Include the google-specific config
 -include vendor/google/build/config.mk
 
-VERSION_CHECK_SEQUENCE_NUMBER := 4
+VERSION_CHECK_SEQUENCE_NUMBER := 5
 -include $(OUT_DIR)/versions_checked.mk
 ifneq ($(VERSION_CHECK_SEQUENCE_NUMBER),$(VERSIONS_CHECKED))
 
 $(info Checking build tools versions...)
 
 ifneq ($(HOST_OS),windows)
-ifneq ($(HOST_OS)-$(HOST_ARCH),darwin-ppc)
 # check for a case sensitive file system
 ifneq (a,$(shell mkdir -p $(OUT_DIR) ; \
                 echo a > $(OUT_DIR)/casecheck.txt; \
@@ -121,7 +118,6 @@ $(warning You are building on a case-insensitive filesystem.)
 $(warning Please move your source tree to a case-sensitive filesystem.)
 $(warning ************************************************************)
 $(error Case-insensitive filesystems not supported)
-endif
 endif
 endif
 
@@ -140,19 +136,48 @@ $(warning ************************************************************)
 $(error Directory names containing spaces not supported)
 endif
 
+java_version_str := $(shell unset _JAVA_OPTIONS && java -version 2>&1)
+javac_version_str := $(shell unset _JAVA_OPTIONS && javac -version 2>&1)
+
+# Check for the correct version of java, should be 1.7 by
+# default, and 1.6 if LEGACY_USE_JAVA6 is set.
+ifeq ($(LEGACY_USE_JAVA6),)
+required_version := "1.7.x"
+required_javac_version := "1.7"
+java_version := $(shell echo '$(java_version_str)' | grep '^java .*[ "]1\.7[\. "$$]')
+javac_version := $(shell echo '$(javac_version_str)' | grep '[ "]1\.7[\. "$$]')
+else # if LEGACY_USE_JAVA6
+required_version := "1.6.x"
+required_javac_version := "1.6"
+java_version := $(shell echo '$(java_version_str)' | grep '^java .*[ "]1\.6[\. "$$]')
+javac_version := $(shell echo '$(javac_version_str)' | grep '[ "]1\.6[\. "$$]')
+endif # if LEGACY_USE_JAVA6
+
+ifeq ($(strip $(java_version)),)
+$(info ************************************************************)
+$(info You are attempting to build with the incorrect version)
+$(info of java.)
+$(info $(space))
+$(info Your version is: $(java_version_str).)
+$(info The required version is: $(required_version))
+$(info $(space))
+$(info Please follow the machine setup instructions at)
+$(info $(space)$(space)$(space)$(space)https://source.android.com/source/initializing.html)
+$(info ************************************************************)
+$(error stop)
+endif
+
 # Check for the current JDK.
 #
 # For Java 1.7, we require OpenJDK on linux and Oracle JDK on Mac OS.
 # For Java 1.6, we require Oracle for all host OSes.
 requires_openjdk := false
-ifneq ($(EXPERIMENTAL_USE_JAVA7),)
+ifeq ($(LEGACY_USE_JAVA6),)
 ifeq ($(HOST_OS), linux)
 requires_openjdk := true
 endif
 endif
 
-java_version_str := $(shell unset _JAVA_OPTIONS && java -version 2>&1)
-javac_version_str := $(shell unset _JAVA_OPTIONS && javac -version 2>&1)
 
 # Check for the current jdk
 ifeq ($(requires_openjdk), true)
@@ -182,53 +207,6 @@ $(error stop)
 endif # java version is not Sun Oracle JDK
 endif # if requires_openjdk
 
-# Check for the correct version of java, should be 1.7 if
-# EXPERIMENTAL_USE_JAVA7 is set, 1.6 otherwise.
-ifneq ($(EXPERIMENTAL_USE_JAVA7),)
-required_version := "1.7.x"
-required_javac_version := "1.7"
-java_version := $(shell echo '$(java_version_str)' | grep '^java .*[ "]1\.7[\. "$$]')
-javac_version := $(shell echo '$(javac_version_str)' | grep '[ "]1\.7[\. "$$]')
-else # if EXPERIMENTAL_USE_JAVA7
-required_version := "1.6.x"
-required_javac_version := "1.6"
-java_version := $(shell echo '$(java_version_str)' | grep '^java .*[ "]1\.6[\. "$$]')
-javac_version := $(shell echo '$(javac_version_str)' | grep '[ "]1\.6[\. "$$]')
-endif # if EXPERIMENTAL_USE_JAVA7
-
-ifeq ($(required_javac_version), "1.6")
-$(info ************************************************************)
-$(info You are attempting to build with java 1.6.)
-$(info Java6 support for master builds will be dropped shortly,)
-$(info please upgrade to Java7 as soon as possible.)
-$(info $(space))
-$(info Visit http://source.android.com/source/initializing.html#installing-the-jdk for details. )
-$(info $(space))
-$(info To build using java-7:)
-$(info $(space))
-$(info $$ export EXPERIMENTAL_USE_JAVA7=true)
-$(info $$ . build/envsetup.sh)
-$(info $$ lunch <target>)
-$(info $$ make clobber)
-$(info $$ make -j8)
-$(info $(space))
-$(info ************************************************************)
-endif
-
-ifeq ($(strip $(java_version)),)
-$(info ************************************************************)
-$(info You are attempting to build with the incorrect version)
-$(info of java.)
-$(info $(space))
-$(info Your version is: $(java_version_str).)
-$(info The required version is: $(required_version))
-$(info $(space))
-$(info Please follow the machine setup instructions at)
-$(info $(space)$(space)$(space)$(space)https://source.android.com/source/download.html)
-$(info ************************************************************)
-$(error stop)
-endif
-
 # Check for the correct version of javac
 ifeq ($(strip $(javac_version)),)
 $(info ************************************************************)
@@ -246,22 +224,8 @@ endif
 
 
 ifndef BUILD_EMULATOR
-ifeq (darwin,$(HOST_OS))
-GCC_REALPATH = $(realpath $(shell which $(HOST_CC)))
-ifneq ($(findstring llvm-gcc,$(GCC_REALPATH)),)
-  # Using LLVM GCC results in a non functional emulator due to it
-  # not honouring global register variables
-  $(warning ****************************************)
-  $(warning * gcc is linked to llvm-gcc which will *)
-  $(warning * not create a useable emulator.       *)
-  $(warning ****************************************)
+  # Emulator binaries are now provided under prebuilts/android-emulator/
   BUILD_EMULATOR := false
-else
-  BUILD_EMULATOR := true
-endif
-else   # HOST_OS is not darwin
-  BUILD_EMULATOR := true
-endif  # HOST_OS is darwin
 endif
 
 $(shell echo 'VERSIONS_CHECKED := $(VERSION_CHECK_SEQUENCE_NUMBER)' \
@@ -348,6 +312,11 @@ ifneq ($(filter sdk win_sdk sdk_addon,$(MAKECMDGOALS)),)
 is_sdk_build := true
 endif
 
+ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.isa.$(TARGET_ARCH).features=$(DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES)
+ifdef TARGET_2ND_ARCH
+ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.isa.$(TARGET_2ND_ARCH).features=$($(TARGET_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES)
+endif
+
 ## user/userdebug ##
 
 user_variant := $(filter user userdebug,$(TARGET_BUILD_VARIANT))
@@ -360,21 +329,20 @@ ifneq (,$(user_variant))
   ifeq ($(user_variant),userdebug)
     # Pick up some extra useful tools
     tags_to_install += debug
-
-    # Enable Dalvik lock contention logging for userdebug builds.
-    ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.lockprof.threshold=500
   else
     # Disable debugging in plain user builds.
     enable_target_debugging :=
   endif
 
-  # Turn on Dalvik preoptimization for user builds, but only if not
+  # Turn on Dalvik preoptimization for libdvm.so user builds, but only if not
   # explicitly disabled and the build is running on Linux (since host
   # Dalvik isn't built for non-Linux hosts).
   ifeq (,$(WITH_DEXPREOPT))
-    ifeq ($(user_variant),user)
-      ifeq ($(HOST_OS),linux)
-        WITH_DEXPREOPT := true
+    ifeq ($(DALVIK_VM_LIB),libdvm.so)
+      ifeq ($(user_variant),user)
+        ifeq ($(HOST_OS),linux)
+          WITH_DEXPREOPT := true
+        endif
       endif
     endif
   endif
@@ -394,6 +362,8 @@ endif # !user_variant
 ifeq (true,$(strip $(enable_target_debugging)))
   # Target is more debuggable and adbd is on by default
   ADDITIONAL_DEFAULT_PROPERTIES += ro.debuggable=1
+  # Enable Dalvik lock contention logging.
+  ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.lockprof.threshold=500
   # Include the debugging/testing OTA keys in this build.
   INCLUDE_TEST_OTA_KEYS := true
 else # !enable_target_debugging
@@ -411,6 +381,10 @@ ifneq ($(filter ro.setupwizard.mode=ENABLED, $(call collapse-pairs, $(ADDITIONAL
           $(call collapse-pairs, $(ADDITIONAL_BUILD_PROPERTIES))) \
           ro.setupwizard.mode=OPTIONAL
 endif
+# Don't even verify the image on eng builds to speed startup
+ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.image-dex2oat-filter=verify-none
+# Don't compile apps on eng builds to speed startup
+ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.dex2oat-filter=interpret-only
 endif
 
 ## sdk ##
@@ -478,12 +452,6 @@ $(INTERNAL_MODIFIER_TARGETS): $(DEFAULT_GOAL)
 endif
 
 # Bring in all modules that need to be built.
-ifeq ($(HOST_OS)-$(HOST_ARCH),darwin-ppc)
-SDK_ONLY := true
-$(info Building the SDK under darwin-ppc is actually obsolete and unsupported.)
-$(error stop)
-endif
-
 ifeq ($(HOST_OS),windows)
 SDK_ONLY := true
 endif
@@ -603,7 +571,6 @@ CUSTOM_MODULES := \
 # brought in as requirements of other modules.
 #
 # Resolve the required module name to 32-bit or 64-bit variant.
-ifeq ($(TARGET_IS_64_BIT),true)
 # Get a list of corresponding 32-bit module names, if one exists.
 define get-32-bit-modules
 $(strip $(foreach m,$(1),\
@@ -633,12 +600,10 @@ $(foreach m,$(ALL_MODULES),\
         $(eval r_r := $(r) $(call get-32-bit-modules,$(r)))\
        )\
      )\
-     $(eval ALL_MODULES.$(m).REQUIRED := $(r_r))\
+     $(eval ALL_MODULES.$(m).REQUIRED := $(strip $(r_r)))\
   )\
 )
 r_r :=
-endif
-
 
 define add-required-deps
 $(1): | $(2)
@@ -664,29 +629,36 @@ h_m :=
 t_r :=
 h_r :=
 
-# Resolve the dependencies on shared libraries.
-$(foreach m,$(TARGET_DEPENDENCIES_ON_SHARED_LIBRARIES), \
-  $(eval p := $(subst :,$(space),$(m))) \
-  $(eval r := $(filter $(TARGET_OUT_ROOT)/%,$(call module-installed-files,\
-    $(subst $(comma),$(space),$(lastword $(p)))))) \
-  $(eval $(call add-required-deps,$(word 2,$(p)),$(r))))
-$(foreach m,$(HOST_DEPENDENCIES_ON_SHARED_LIBRARIES), \
-  $(eval p := $(subst :,$(space),$(m))) \
-  $(eval r := $(filter $(HOST_OUT_ROOT)/%,$(call module-installed-files,\
-    $(subst $(comma),$(space),$(lastword $(p)))))) \
-  $(eval $(call add-required-deps,$(word 2,$(p)),$(r))))
+# Establish the dependecies on the shared libraries.
+# It also adds the shared library module names to ALL_MODULES.$(m).REQUIRED,
+# so they can be expanded to product_MODULES later.
+# $(1): TARGET_ or HOST_.
+# $(2): non-empty for 2nd arch.
+define resolve-shared-libs-depes
+$(foreach m,$($(if $(2),$($(1)2ND_ARCH_VAR_PREFIX))$(1)DEPENDENCIES_ON_SHARED_LIBRARIES),\
+  $(eval p := $(subst :,$(space),$(m)))\
+  $(eval mod := $(firstword $(p)))\
+  $(eval deps := $(subst $(comma),$(space),$(lastword $(p))))\
+  $(if $(2),$(eval deps := $(addsuffix $($(1)2ND_ARCH_MODULE_SUFFIX),$(deps))))\
+  $(eval r := $(filter $($(1)OUT_ROOT)/%,$(call module-installed-files,\
+    $(deps))))\
+  $(eval $(call add-required-deps,$(word 2,$(p)),$(r)))\
+  $(eval ALL_MODULES.$(mod).REQUIRED += $(deps)))
+endef
+
+$(call resolve-shared-libs-depes,TARGET_)
 ifdef TARGET_2ND_ARCH
-$(foreach m,$($(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_DEPENDENCIES_ON_SHARED_LIBRARIES), \
-  $(eval p := $(subst :,$(space),$(m))) \
-  $(eval r := $(filter $(TARGET_OUT_ROOT)/%,$(call module-installed-files,\
-    $(addsuffix $(TARGET_2ND_ARCH_MODULE_SUFFIX), \
-      $(subst $(comma),$(space),$(lastword $(p))))))) \
-  $(eval $(call add-required-deps,$(word 2,$(p)),$(r))))
+$(call resolve-shared-libs-depes,TARGET_,true)
+endif
+$(call resolve-shared-libs-depes,HOST_)
+ifdef HOST_2ND_ARCH
+$(call resolve-shared-libs-depes,HOST_,true)
 endif
 
 m :=
 r :=
 p :=
+deps :=
 add-required-deps :=
 
 # -------------------------------------------------------------------
@@ -694,6 +666,20 @@ add-required-deps :=
 #
 # Of the modules defined by the component makefiles,
 # determine what we actually want to build.
+
+###########################################################
+## Expand a module name list with REQUIRED modules
+###########################################################
+# $(1): The variable name that holds the initial module name list.
+#       the variable will be modified to hold the expanded results.
+# $(2): The initial module name list.
+# Returns empty string (maybe with some whitespaces).
+define expand-required-modules
+$(eval _erm_new_modules := $(sort $(filter-out $($(1)),\
+  $(foreach m,$(2),$(ALL_MODULES.$(m).REQUIRED)))))\
+$(if $(_erm_new_modules),$(eval $(1) += $(_erm_new_modules))\
+  $(call expand-required-modules,$(1),$(_erm_new_modules)))
+endef
 
 ifdef FULL_BUILD
   # The base list of modules to build for this product is specified
@@ -708,17 +694,16 @@ ifdef FULL_BUILD
   modules_32 := $(patsubst %:32,%,$(filter %:32, $(product_MODULES)))
   modules_64 := $(patsubst %:64,%,$(filter %:64, $(product_MODULES)))
   modules_rest := $(filter-out %:32 %:64,$(product_MODULES))
-  ifeq ($(TARGET_IS_64_BIT),true)
-    product_MODULES := $(addsuffix $(TARGET_2ND_ARCH_MODULE_SUFFIX),$(modules_32))
-    product_MODULES += $(modules_64)
-    # For the rest we add both
-    product_MODULES += $(call get-32-bit-modules, $(modules_rest))
-    product_MODULES += $(modules_rest)
-  else
-    product_MODULES := $(modules_32) $(modules_64) $(modules_rest)
-  endif
+  # Note for 32-bit product, $(modules_32) and $(modules_64) will be
+  # added as their original module names.
+  product_MODULES := $(call get-32-bit-modules-if-we-can, $(modules_32))
+  product_MODULES += $(modules_64)
+  # For the rest we add both
+  product_MODULES += $(call get-32-bit-modules, $(modules_rest))
+  product_MODULES += $(modules_rest)
 
   $(call expand-required-modules,product_MODULES,$(product_MODULES))
+
   product_FILES := $(call module-installed-files, $(product_MODULES))
   ifeq (0,1)
     $(info product_FILES for $(TARGET_DEVICE) ($(INTERNAL_PRODUCT)):)
@@ -785,14 +770,10 @@ ifdef is_sdk_build
   # TODO: Should we do this for all builds and not just the sdk?
   dangling_modules :=
   $(foreach m, $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES), \
-    $(if $(strip $(ALL_MODULES.$(m).INSTALLED)),,\
+    $(if $(strip $(ALL_MODULES.$(m).INSTALLED) $(ALL_MODULES.$(m)$(TARGET_2ND_ARCH_MODULE_SUFFIX).INSTALLED)),,\
       $(eval dangling_modules += $(m))))
-  ifneq ($(TARGET_IS_64_BIT),true)
-    # We know those 64-bit modules don't exist in the 32-bit SDK build.
-    dangling_modules := $(filter-out %64,$(dangling_modules))
-  endif
   ifneq ($(dangling_modules),)
-    $(error Module names '$(dangling_modules)' in PRODUCT_PACKAGES has nothing to install!)
+    $(warning Module names '$(dangling_modules)' in PRODUCT_PACKAGES has nothing to install!)
   endif
   $(foreach m, $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES_DEBUG), \
     $(if $(strip $(ALL_MODULES.$(m).INSTALLED)),,\
@@ -1018,7 +999,7 @@ $(call dist-for-goals,sdk win_sdk, \
 # umbrella targets to assit engineers in verifying builds
 .PHONY: java native target host java-host java-target native-host native-target \
         java-host-tests java-target-tests native-host-tests native-target-tests \
-        java-tests native-tests host-tests target-tests
+        java-tests native-tests host-tests target-tests tests
 # some synonyms
 .PHONY: host-java target-java host-native target-native \
         target-java-tests target-native-tests
@@ -1028,6 +1009,7 @@ host-native : native-host
 target-native : native-target
 target-java-tests : java-target-tests
 target-native-tests : native-target-tests
+tests : host-tests target-tests
 
 
 .PHONY: lintall

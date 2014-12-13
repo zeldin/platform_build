@@ -42,48 +42,12 @@
 #define HAVE_PTHREADS
 
 /*
- * Do we have pthread_setname_np()?
- *
- * (HAVE_PTHREAD_SETNAME_NP is used by WebKit to enable a function with
- * the same name but different parameters, so we can't use that here.)
- */
-#define HAVE_ANDROID_PTHREAD_SETNAME_NP
-
-/*
- * Do we have the futex syscall?
- */
-#define HAVE_FUTEX
-
-/*
- * Define if we already have the futex wrapper functions defined. Yes if
- * compiling against bionic.
- */
-#define HAVE_FUTEX_WRAPPERS 1
-
-/*
  * Process creation model.  Choose one:
  *
  * HAVE_FORKEXEC - use fork() and exec()
  * HAVE_WIN32_PROC - use CreateProcess()
  */
 #define HAVE_FORKEXEC
-
-/*
- * Process out-of-memory adjustment.  Set if running on Linux,
- * where we can write to /proc/<pid>/oom_adj to modify the out-of-memory
- * badness adjustment.
- */
-#define HAVE_OOM_ADJ
-
-/*
- * IPC model.  Choose one:
- *
- * HAVE_SYSV_IPC - use the classic SysV IPC mechanisms (semget, shmget).
- * HAVE_MACOSX_IPC - use Macintosh IPC mechanisms (sem_open, mmap).
- * HAVE_WIN32_IPC - use Win32 IPC (CreateSemaphore, CreateFileMapping).
- * HAVE_ANDROID_IPC - use Android versions (?, mmap).
- */
-#define HAVE_ANDROID_IPC
 
 /*
  * Memory-mapping model. Choose one:
@@ -97,11 +61,6 @@
  * Define this if you have <termio.h>
  */
 #define  HAVE_TERMIO_H 1
-
-/*
- * Define this if you have <sys/sendfile.h>
- */
-#define  HAVE_SYS_SENDFILE_H 1
 
 /*
  * Define this if you build against MSVCRT.DLL
@@ -130,11 +89,6 @@
 /* #define HAVE_GETHOSTBYNAME_R */
 
 /*
- * Define this if we have ioctl().
- */
-#define HAVE_IOCTL
-
-/*
  * Define this if we want to use WinSock.
  */
 /* #define HAVE_WINSOCK */
@@ -143,17 +97,6 @@
  * Define this if have clock_gettime() and friends
  */
 #define HAVE_POSIX_CLOCKS
-
-/*
- * Define this if we have pthread_cond_timedwait_monotonic() and
- * clock_gettime(CLOCK_MONOTONIC).
- */
-#define HAVE_TIMEDWAIT_MONOTONIC
-
-/*
- * Define this if we have linux style epoll()
- */
-#define HAVE_EPOLL
 
 /*
  * Endianness of the target machine.  Choose one:
@@ -179,27 +122,11 @@
 /* #define _LARGEFILE_SOURCE 1 */
 
 /*
- * Define if platform has off64_t (and lseek64 and other xxx64 functions)
- */
-#define HAVE_OFF64_T
-
-/*
  * Defined if we have the backtrace() call for retrieving a stack trace.
  * Needed for CallStack to operate; if not defined, CallStack is
  * non-functional.
  */
 #define HAVE_BACKTRACE 0
-
-/*
- * Defined if we have the cxxabi.h header for demangling C++ symbols.  If
- * not defined, stack crawls will be displayed with raw mangled symbols
- */
-#define HAVE_CXXABI 0
-
-/*
- * Defined if we have the gettid() system call.
- */
-#define HAVE_GETTID
 
 /*
  * Defined if we have the sched_setscheduler() call
@@ -287,21 +214,6 @@
 #define OS_SHARED_LIB_FORMAT_STR    "lib%s.so"
 
 /*
- * Do we have __memcmp16()?
- */
-#define HAVE__MEMCMP16  1
-
-/*
- * type for the third argument to mincore().
- */
-#define MINCORE_POINTER_TYPE unsigned char *
-
-/*
- * Do we have the sigaction flag SA_NOCLDWAIT?
- */
-#define HAVE_SA_NOCLDWAIT
-
-/*
  * The default path separator for the platform
  */
 #define OS_PATH_SEPARATOR '/'
@@ -320,11 +232,6 @@
  * Define if the strlcpy() function exists on the system.
  */
 #define HAVE_STRLCPY 1
-
-/*
- * Define if the open_memstream() function exists on the system.
- */
-/* #define HAVE_OPEN_MEMSTREAM 1 */
 
 /*
  * Define if the BSD funopen() function exists on the system.

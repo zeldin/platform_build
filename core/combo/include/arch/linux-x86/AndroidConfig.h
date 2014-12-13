@@ -42,35 +42,12 @@
 #define HAVE_PTHREADS
 
 /*
- * Do we have the futex syscall?
- */
-
-#define HAVE_FUTEX
-
-/*
  * Process creation model.  Choose one:
  *
  * HAVE_FORKEXEC - use fork() and exec()
  * HAVE_WIN32_PROC - use CreateProcess()
  */
 #define HAVE_FORKEXEC
-
-/*
- * Process out-of-memory adjustment.  Set if running on Linux,
- * where we can write to /proc/<pid>/oom_adj to modify the out-of-memory
- * badness adjustment.
- */
-#define HAVE_OOM_ADJ
-
-/*
- * IPC model.  Choose one:
- *
- * HAVE_SYSV_IPC - use the classic SysV IPC mechanisms (semget, shmget).
- * HAVE_MACOSX_IPC - use Macintosh IPC mechanisms (sem_open, mmap).
- * HAVE_WIN32_IPC - use Win32 IPC (CreateSemaphore, CreateFileMapping).
- * HAVE_ANDROID_IPC - use Android versions (?, mmap).
- */
-#define HAVE_SYSV_IPC
 
 /*
  * Memory-mapping model. Choose one:
@@ -84,16 +61,6 @@
  * Define this if you have <termio.h>
  */
 #define  HAVE_TERMIO_H 1
-
-/*
- * Define this if you have <sys/sendfile.h>
- */
-#define  HAVE_SYS_SENDFILE_H 1
-
-/*
- * Define this if you build against MSVCRT.DLL
- */
-/* #define HAVE_MS_C_RUNTIME */
 
 /*
  * Define this if you have sys/uio.h
@@ -117,33 +84,9 @@
 #define HAVE_GETHOSTBYNAME_R
 
 /*
- * Define this if we have ioctl().
- */
-#define HAVE_IOCTL
-
-/*
- * Define this if we want to use WinSock.
- */
-/* #define HAVE_WINSOCK */
-
-/*
  * Define this if have clock_gettime() and friends
- *
- * Desktop Linux has this in librt, but it's broken in goobuntu, yielding
- * mildly or wildly inaccurate results.
  */
-/*#define HAVE_POSIX_CLOCKS*/
-
-/*
- * Define this if we have pthread_cond_timedwait_monotonic() and
- * clock_gettime(CLOCK_MONOTONIC).
- */
-/* #define HAVE_TIMEDWAIT_MONOTONIC */
-
-/*
- * Define this if we have linux style epoll()
- */
-#define HAVE_EPOLL
+#define HAVE_POSIX_CLOCKS
 
 /*
  * Endianness of the target machine.  Choose one:
@@ -164,27 +107,11 @@
 #define _LARGEFILE_SOURCE 1
 
 /*
- * Define if platform has off64_t (and lseek64 and other xxx64 functions)
- */
-#define HAVE_OFF64_T
-
-/*
  * Defined if we have the backtrace() call for retrieving a stack trace.
  * Needed for CallStack to operate; if not defined, CallStack is
  * non-functional.
  */
 #define HAVE_BACKTRACE 1
-
-/*
- * Defined if we have the cxxabi.h header for demangling C++ symbols.  If
- * not defined, stack crawls will be displayed with raw mangled symbols
- */
-#define HAVE_CXXABI 0
-
-/*
- * Defined if we have the gettid() system call.
- */
-/* #define HAVE_GETTID */
 
 /* 
  * Defined if we have the sched_setscheduler() call
@@ -192,28 +119,14 @@
 #define HAVE_SCHED_SETSCHEDULER
 
 /*
- * Add any extra platform-specific defines here.
- */
-
-/*
  * Define if we have <malloc.h> header
  */
 #define HAVE_MALLOC_H
 
 /*
- * Define if we have Linux-style non-filesystem Unix Domain Sockets
- */
-
-/*
  * What CPU architecture does this platform use?
  */
 #define ARCH_X86
-
-
-/*
- * Define if we have Linux's inotify in <sys/inotify.h>.
- */
-/*#define HAVE_INOTIFY 1*/
 
 /*
  * Define if we have madvise() in <sys/mman.h>
@@ -231,11 +144,6 @@
 #define HAVE_DIRENT_D_TYPE 1
 
 /*
- * Define if libc includes Android system properties implementation.
- */
-/* #define HAVE_LIBC_SYSTEM_PROPERTIES */
-
-/*
  * Define if system provides a system property server (should be
  * mutually exclusive with HAVE_LIBC_SYSTEM_PROPERTIES).
  */
@@ -245,16 +153,6 @@
  * sprintf() format string for shared library naming.
  */
 #define OS_SHARED_LIB_FORMAT_STR    "lib%s.so"
-
-/*
- * type for the third argument to mincore().
- */
-#define MINCORE_POINTER_TYPE unsigned char *
-
-/*
- * Do we have the sigaction flag SA_NOCLDWAIT?
- */
-#define HAVE_SA_NOCLDWAIT
 
 /*
  * The default path separator for the platform
@@ -270,21 +168,6 @@
  * Define if <sys/socket.h> exists.
  */
 #define HAVE_SYS_SOCKET_H 1
-
-/*
- * Define if the strlcpy() function exists on the system.
- */
-/* #define HAVE_STRLCPY 1 */
-
-/*
- * Define if the open_memstream() function exists on the system.
- */
-#define HAVE_OPEN_MEMSTREAM 1
-
-/*
- * Define if the BSD funopen() function exists on the system.
- */
-/* #define HAVE_FUNOPEN 1 */
 
 /*
  * Define if prctl() exists
@@ -325,19 +208,5 @@
  * Define if printf() supports %zd for size_t arguments
  */
 #define HAVE_PRINTF_ZD 1
-
-/*
- * Define to 1 if <stdlib.h> provides qsort_r() with a BSD style function prototype.
- */
-#define HAVE_BSD_QSORT_R 0
-
-/*
- * Define to 1 if <stdlib.h> provides qsort_r() with a GNU style function prototype.
- */
-#if __GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 8)
-#define HAVE_GNU_QSORT_R 1
-#else
-#define HAVE_GNU_QSORT_R 0
-#endif
 
 #endif /*_ANDROID_CONFIG_H*/

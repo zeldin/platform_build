@@ -78,12 +78,19 @@ ifeq ($(filter tests, $(LOCAL_MODULE_TAGS)),)
 LOCAL_AAPT_FLAGS := $(LOCAL_AAPT_FLAGS) -z
 endif
 
+need_compile_asset :=
 ifeq (,$(LOCAL_ASSET_DIR))
 LOCAL_ASSET_DIR := $(LOCAL_PATH)/assets
+else
+need_compile_asset := true
 endif
 
+# LOCAL_RESOURCE_DIR may point to resource generated during the build
+need_compile_res :=
 ifeq (,$(LOCAL_RESOURCE_DIR))
   LOCAL_RESOURCE_DIR := $(LOCAL_PATH)/res
+else
+  need_compile_res := true
 endif
 
 package_resource_overlays := $(strip \
@@ -97,6 +104,10 @@ LOCAL_RESOURCE_DIR := $(package_resource_overlays) $(LOCAL_RESOURCE_DIR)
 all_assets := $(call find-subdir-assets,$(LOCAL_ASSET_DIR))
 all_assets := $(addprefix $(LOCAL_ASSET_DIR)/,$(patsubst assets/%,%,$(all_assets)))
 
+ifneq ($(all_assets),)
+need_compile_asset := true
+endif
+
 all_resources := $(strip \
     $(foreach dir, $(LOCAL_RESOURCE_DIR), \
       $(addprefix $(dir)/, \
@@ -106,15 +117,19 @@ all_resources := $(strip \
        ) \
      ))
 
+ifneq ($(all_resources),)
+  need_compile_res := true
+endif
+
 all_res_assets := $(strip $(all_assets) $(all_resources))
 
 package_expected_intermediates_COMMON := $(call local-intermediates-dir,COMMON)
 # If no assets or resources were found, clear the directory variables so
 # we don't try to build them.
-ifeq (,$(all_assets))
+ifneq (true,$(need_compile_asset))
 LOCAL_ASSET_DIR:=
 endif
-ifeq (,$(all_resources))
+ifneq (true,$(need_compile_res))
 LOCAL_RESOURCE_DIR:=
 R_file_stamp :=
 else
@@ -139,9 +154,9 @@ ifeq ($(LOCAL_PROGUARD_ENABLED),disabled)
 endif
 proguard_options_file :=
 ifneq ($(LOCAL_PROGUARD_ENABLED),custom)
-ifneq ($(all_resources),)
+ifeq ($(need_compile_res),true)
     proguard_options_file := $(package_expected_intermediates_COMMON)/proguard_options
-endif # all_resources
+endif # need_compile_res
 endif # !custom
 LOCAL_PROGUARD_FLAGS := $(addprefix -include ,$(proguard_options_file)) $(LOCAL_PROGUARD_FLAGS)
 
@@ -196,7 +211,7 @@ $(LOCAL_INTERMEDIATE_TARGETS): \
     PRIVATE_DEFAULT_APP_TARGET_SDK := $(DEFAULT_APP_TARGET_SDK)
 endif
 
-ifneq ($(all_resources),)
+ifeq ($(need_compile_res),true)
 
 # Since we don't know where the real R.java file is going to end up,
 # we need to use another file to stand in its place.  We'll just
@@ -265,7 +280,7 @@ ifneq ($(full_classes_jar),)
 $(full_classes_compiled_jar): $(R_file_stamp)
 endif
 
-endif  # all_resources
+endif  # need_compile_res
 
 ifeq ($(LOCAL_NO_STANDARD_LIBRARIES),true)
 # We need to explicitly clear this var so that we don't
@@ -299,50 +314,7 @@ $(LOCAL_BUILT_MODULE): PRIVATE_DEX_FILE := $(built_dex)
 $(LOCAL_BUILT_MODULE): $(built_dex)
 endif # full_classes_jar
 
-
-# Get the list of jni libraries to be included in the apk file.
-
-so_suffix := $($(my_prefix)SHLIB_SUFFIX)
-
-jni_shared_libraries := \
-    $(addprefix $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)OUT_INTERMEDIATE_LIBRARIES)/, \
-      $(addsuffix $(so_suffix), \
-        $(LOCAL_JNI_SHARED_LIBRARIES)))
-
-# Include RS dynamically-generated libraries as well
-# Keep this ifneq, as the += otherwise adds spaces that need to be stripped.
-ifneq ($(rs_compatibility_jni_libs),)
-jni_shared_libraries += $(rs_compatibility_jni_libs)
-endif
-
-# App explicitly requires the prebuilt NDK libstlport_shared.so.
-# libstlport_shared.so should never go to the system image.
-# Instead it should be packaged into the apk.
-ifneq ($(filter $(LOCAL_NDK_STL_VARIANT), stlport_shared c++_shared),)
-ifndef LOCAL_SDK_VERSION
-$(error LOCAL_SDK_VERSION has to be defined together with LOCAL_NDK_STL_VARIANT, \
-    LOCAL_PACKAGE_NAME=$(LOCAL_PACKAGE_NAME))
-endif
-endif
-ifeq (stlport_shared,$(LOCAL_NDK_STL_VARIANT))
-jni_shared_libraries += \
-    $(HISTORICAL_NDK_VERSIONS_ROOT)/current/sources/cxx-stl/stlport/libs/$(TARGET_$(LOCAL_2ND_ARCH_VAR_PREFIX)CPU_ABI)/libstlport_shared.so
-else
-ifeq (c++_shared,$(LOCAL_NDK_STL_VARIANT))
-jni_shared_libraries += \
-    $(HISTORICAL_NDK_VERSIONS_ROOT)/current/sources/cxx-stl/llvm-libc++/libs/$(TARGET_$(LOCAL_2ND_ARCH_VAR_PREFIX)CPU_ABI)/libc++_shared.so
-endif
-endif
-
-# Set the abi directory used by the local JNI shared libraries.
-# (Doesn't change how the local shared libraries are compiled, just
-# sets where they are stored in the apk.)
-
-ifeq ($(LOCAL_JNI_SHARED_LIBRARIES_ABI),)
-    jni_shared_libraries_abi := $(TARGET_$(LOCAL_2ND_ARCH_VAR_PREFIX)CPU_ABI)
-else
-    jni_shared_libraries_abi := $(LOCAL_JNI_SHARED_LIBRARIES_ABI)
-endif
+include $(BUILD_SYSTEM)/install_jni_libs.mk
 
 # Pick a key to sign the package with.  If this package hasn't specified
 # an explicit certificate, use the default.
@@ -379,20 +351,10 @@ $(LOCAL_BUILT_MODULE): PRIVATE_ADDITIONAL_CERTIFICATES := $(foreach c,\
 
 # Define the rule to build the actual package.
 $(LOCAL_BUILT_MODULE): $(AAPT) | $(ZIPALIGN)
-ifdef LOCAL_DEX_PREOPT
-$(LOCAL_BUILT_MODULE): PRIVATE_DEX_LOCATION := $(patsubst $(PRODUCT_OUT)%,%,$(LOCAL_INSTALLED_MODULE))
-$(LOCAL_BUILT_MODULE): PRIVATE_BUILT_ODEX := $(built_odex)
-$(LOCAL_BUILT_MODULE): PRIVATE_DEX_PREOPT_IMAGE := $(LOCAL_DEX_PREOPT_IMAGE)
-# Make sure the boot jars get dexpreopt-ed first
-$(LOCAL_BUILT_MODULE) : $(DEXPREOPT_ONE_FILE_DEPENDENCY_BUILT_BOOT_PREOPT)
-$(LOCAL_BUILT_MODULE) : $(DEXPREOPT_ONE_FILE_DEPENDENCY_TOOLS)
-$(LOCAL_BUILT_MODULE) : $(LOCAL_DEX_PREOPT_IMAGE)
-
-# built_odex is byproduct of LOCAL_BUILT_MODULE without its own build recipe.
-$(built_odex) : $(LOCAL_BUILT_MODULE)
-endif
-$(LOCAL_BUILT_MODULE): PRIVATE_JNI_SHARED_LIBRARIES := $(jni_shared_libraries)
-$(LOCAL_BUILT_MODULE): PRIVATE_JNI_SHARED_LIBRARIES_ABI := $(jni_shared_libraries_abi)
+# PRIVATE_JNI_SHARED_LIBRARIES is a list of <abi>:<path_of_built_lib>.
+$(LOCAL_BUILT_MODULE): PRIVATE_JNI_SHARED_LIBRARIES := $(jni_shared_libraries_with_abis)
+# PRIVATE_JNI_SHARED_LIBRARIES_ABI is a list of ABI names.
+$(LOCAL_BUILT_MODULE): PRIVATE_JNI_SHARED_LIBRARIES_ABI := $(jni_shared_libraries_abis)
 ifneq ($(TARGET_BUILD_APPS),)
     # Include all resources for unbundled apps.
     LOCAL_AAPT_INCLUDE_ALL_RESOURCES := true
@@ -420,13 +382,25 @@ ifneq ($(extra_jar_args),)
 endif
 	$(sign-package)
 ifdef LOCAL_DEX_PREOPT
-	$(call dexpreopt-one-file,$(PRIVATE_DEX_PREOPT_IMAGE),$@,$(PRIVATE_DEX_LOCATION),$(PRIVATE_BUILT_ODEX))
 ifneq (nostripping,$(LOCAL_DEX_PREOPT))
 	$(call dexpreopt-remove-classes.dex,$@)
 endif
 endif
 	@# Alignment must happen after all other zip operations.
 	$(align-package)
+
+###############################
+## Rule to build the odex file
+ifdef LOCAL_DEX_PREOPT
+$(built_odex): PRIVATE_DEX_FILE := $(built_dex)
+# Use pattern rule - we may have multiple built odex files.
+$(built_odex) : $(dir $(LOCAL_BUILT_MODULE))% : $(built_dex)
+	$(hide) mkdir -p $(dir $@) && rm -f $@
+	$(add-dex-to-package)
+	$(hide) mv $@ $@.input
+	$(call dexpreopt-one-file,$@.input,$@)
+	$(hide) rm $@.input
+endif
 
 # Save information about this package
 PACKAGES.$(LOCAL_PACKAGE_NAME).OVERRIDES := $(strip $(LOCAL_OVERRIDES_PACKAGES))

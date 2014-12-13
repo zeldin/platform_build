@@ -35,23 +35,29 @@ BUILD_EMULATOR_OPENGL := true
 USE_OPENGL_RENDERER := true
 
 TARGET_USERIMAGES_USE_EXT4 := true
-BOARD_SYSTEMIMAGE_PARTITION_SIZE := 576716800
-BOARD_USERDATAIMAGE_PARTITION_SIZE := 209715200
+BOARD_SYSTEMIMAGE_PARTITION_SIZE := 786432000
+BOARD_USERDATAIMAGE_PARTITION_SIZE := 576716800
 BOARD_CACHEIMAGE_PARTITION_SIZE := 69206016
 BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := ext4
 BOARD_FLASH_BLOCK_SIZE := 512
 TARGET_USERIMAGES_SPARSE_EXT_DISABLED := true
 
-BOARD_SEPOLICY_DIRS += build/target/board/generic_x86/sepolicy
+BOARD_SEPOLICY_DIRS += \
+        build/target/board/generic/sepolicy \
+        build/target/board/generic_x86/sepolicy
+
 BOARD_SEPOLICY_UNION += \
-        adbd.te \
         device.te \
         domain.te \
         file.te \
         file_contexts \
         healthd.te \
         installd.te \
-        mediaserver.te \
+        goldfish_setup.te \
+        goldfish_logcat.te \
+        property.te \
+        property_contexts \
+        qemu_props.te \
         qemud.te \
         rild.te \
         shell.te \
