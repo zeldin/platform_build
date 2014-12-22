@@ -97,7 +97,11 @@ endif
 endif
 
 # We don't want to move all the prebuilt host tools to a $(HOST_OS)-x86_64 dir.
-HOST_PREBUILT_ARCH := x86
+ifeq ($(HOST_ARCH),x86_64)
+  HOST_PREBUILT_ARCH := x86
+else
+  HOST_PREBUILT_ARCH := $(HOST_ARCH)
+endif
 # This is the standard way to name a directory containing prebuilt host
 # objects. E.g., prebuilt/$(HOST_PREBUILT_TAG)/cc
 ifeq ($(HOST_OS),windows)
