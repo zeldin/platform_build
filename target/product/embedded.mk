@@ -20,11 +20,14 @@
 PRODUCT_PACKAGES += \
     adb \
     adbd \
+    atrace \
     bootanimation \
     debuggerd \
     dumpstate \
     dumpsys \
+    fastboot \
     gralloc.default \
+    grep \
     gzip \
     healthd \
     init \
@@ -47,29 +50,32 @@ PRODUCT_PACKAGES += \
     libm \
     libpixelflinger \
     libpower \
+    libsigchain \
     libstdc++ \
-    libstlport \
     libsurfaceflinger \
     libsurfaceflinger_ddmconnection \
     libsysutils \
     libui \
     libutils \
     linker \
+    lmkd \
     logcat \
     logwrapper \
     mkshrc \
     reboot \
+    recovery \
     service \
     servicemanager \
     sh \
     surfaceflinger \
     toolbox \
-    libsigchain
+    toybox \
+    tzdatacheck \
 
 # SELinux packages
 PRODUCT_PACKAGES += \
     sepolicy \
-    file_contexts \
+    file_contexts.bin \
     seapp_contexts \
     property_contexts \
     mac_permissions.xml \

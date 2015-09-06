@@ -35,11 +35,6 @@ HOST_TOOLCHAIN_ROOT := prebuilts/gcc/darwin-x86/host/i686-apple-darwin-4.2.1
 HOST_TOOLCHAIN_PREFIX := $(HOST_TOOLCHAIN_ROOT)/bin/i686-apple-darwin$(gcc_darwin_version)
 HOST_CC  := $(HOST_TOOLCHAIN_PREFIX)-gcc
 HOST_CXX := $(HOST_TOOLCHAIN_PREFIX)-g++
-ifeq ($(mac_sdk_version),10.8)
-# Mac SDK 10.8 no longer has stdarg.h, etc
-host_toolchain_header := $(HOST_TOOLCHAIN_ROOT)/lib/gcc/i686-apple-darwin$(gcc_darwin_version)/4.2.1/include
-HOST_GLOBAL_CFLAGS += -isystem $(host_toolchain_header)
-endif
 
 # gcc location for clang; to be updated when clang is updated
 # HOST_TOOLCHAIN_ROOT is a Darwin-specific define
@@ -48,6 +43,7 @@ HOST_TOOLCHAIN_FOR_CLANG := $(HOST_TOOLCHAIN_ROOT)
 HOST_AR := $(AR)
 
 HOST_GLOBAL_CFLAGS += -isysroot $(mac_sdk_root) -mmacosx-version-min=$(mac_sdk_version) -DMACOSX_DEPLOYMENT_TARGET=$(mac_sdk_version)
+HOST_GLOBAL_CPPFLAGS += -isystem $(mac_sdk_path)/Toolchains/XcodeDefault.xctoolchain/usr/include/c++/v1
 HOST_GLOBAL_LDFLAGS += -isysroot $(mac_sdk_root) -Wl,-syslibroot,$(mac_sdk_root) -mmacosx-version-min=$(mac_sdk_version)
 
 HOST_GLOBAL_CFLAGS += -fPIC -funwind-tables
@@ -56,14 +52,6 @@ HOST_NO_UNDEFINED_LDFLAGS := -Wl,-undefined,error
 HOST_SHLIB_SUFFIX := .dylib
 HOST_JNILIB_SUFFIX := .jnilib
 
-HOST_GLOBAL_CFLAGS += \
-    -include $(call select-android-config-h,darwin-x86)
-
-ifneq ($(filter 10.7 10.7.% 10.8 10.8.%, $(build_mac_version)),)
-       HOST_RUN_RANLIB_AFTER_COPYING := false
-else
-       HOST_RUN_RANLIB_AFTER_COPYING := true
-endif
 HOST_GLOBAL_ARFLAGS := cqs
 
 # We Reuse the following functions with the same name from HOST_darwin-x86.mk:

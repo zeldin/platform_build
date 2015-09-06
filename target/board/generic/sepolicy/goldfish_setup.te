@@ -1,7 +1,6 @@
 # goldfish-setup service: runs init.goldfish.sh script
 type goldfish_setup, domain;
 type goldfish_setup_exec, exec_type, file_type;
-permissive_or_unconfined(goldfish_setup)
 
 init_daemon_domain(goldfish_setup)
 
@@ -14,6 +13,12 @@ allow goldfish_setup self:capability { net_admin net_raw };
 allow goldfish_setup self:udp_socket create_socket_perms;
 
 # Set net.eth0.dns*, debug.sf.nobootanimation
-unix_socket_connect(goldfish_setup, property, init)
-allow goldfish_setup system_prop:property_service set;
-allow goldfish_setup debug_prop:property_service set;
+set_prop(goldfish_setup, system_prop)
+set_prop(goldfish_setup, debug_prop)
+
+# Set ro.radio.noril
+set_prop(goldfish_setup, radio_noril_prop)
+
+# Stop ril-daemon service (by setting ctl.stop to ril-daemon, which
+# transforms to a permission check on ctl.ril-daemon).
+set_prop(goldfish_setup, ctl_rildaemon_prop)

@@ -17,16 +17,13 @@ endif
 # know its results before base_rules.mk is included.
 include $(BUILD_SYSTEM)/configure_module_stem.mk
 
-# base_rules.make defines $(intermediates), but we need its value
-# before we include base_rules.  Make a guess, and verify that
-# it's correct once the real value is defined.
-guessed_intermediates := $(call local-intermediates-dir,,$(LOCAL_2ND_ARCH_VAR_PREFIX))
+intermediates := $(call local-intermediates-dir,,$(LOCAL_2ND_ARCH_VAR_PREFIX))
 
 # Define the target that is the unmodified output of the linker.
 # The basename of this target must be the same as the final output
 # binary name, because it's used to set the "soname" in the binary.
 # The includer of this file will define a rule to build this target.
-linked_module := $(guessed_intermediates)/LINKED/$(my_built_module_stem)
+linked_module := $(intermediates)/LINKED/$(my_built_module_stem)
 
 ALL_ORIGINAL_DYNAMIC_BINARIES += $(linked_module)
 
@@ -41,33 +38,38 @@ LOCAL_INTERMEDIATE_TARGETS := $(linked_module)
 include $(BUILD_SYSTEM)/binary.mk
 ###################################
 
-# Make sure that our guess at the value of intermediates was correct.
-ifneq ($(intermediates),$(guessed_intermediates))
-$(error Internal error: guessed path '$(guessed_intermediates)' doesn't match '$(intermediates))
+###########################################################
+## Pack relocation tables
+###########################################################
+relocation_packer_input := $(linked_module)
+relocation_packer_output := $(intermediates)/PACKED/$(my_built_module_stem)
+
+my_pack_module_relocations := $(LOCAL_PACK_MODULE_RELOCATIONS)
+
+ifeq ($(my_pack_module_relocations),)
+  my_pack_module_relocations := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_PACK_MODULE_RELOCATIONS)
 endif
 
-###########################################################
-## Compress
-###########################################################
-compress_input := $(linked_module)
-
-ifeq ($(strip $(LOCAL_COMPRESS_MODULE_SYMBOLS)),)
-  LOCAL_COMPRESS_MODULE_SYMBOLS := $(strip $(TARGET_COMPRESS_MODULE_SYMBOLS))
+# Do not pack relocations for executables. Because packing results in
+# non-zero p_vaddr which causes kernel to load executables to lower
+# address (starting at 0x8000) http://b/20665974
+ifeq ($(LOCAL_MODULE_CLASS),EXECUTABLES)
+  my_pack_module_relocations := false
 endif
 
-ifeq ($(LOCAL_COMPRESS_MODULE_SYMBOLS),true)
-$(error Symbol compression not yet supported.)
-compress_output := $(intermediates)/COMPRESSED-$(my_built_module_stem)
+# TODO (dimitry): Relocation packer is not yet available for darwin
+ifneq ($(HOST_OS),linux)
+  my_pack_module_relocations := false
+endif
 
-#TODO: write the real $(STRIPPER) rule.
-#TODO: define a rule to build TARGET_SYMBOL_FILTER_FILE, and
-#      make it depend on ALL_ORIGINAL_DYNAMIC_BINARIES.
-$(compress_output): $(compress_input) $(TARGET_SYMBOL_FILTER_FILE) | $(ACP)
-	@echo "target Compress Symbols: $(PRIVATE_MODULE) ($@)"
-	$(copy-file-to-target)
+ifeq (true,$(my_pack_module_relocations))
+# Pack relocations
+$(relocation_packer_output): $(relocation_packer_input) | $(ACP)
+	$(pack-elf-relocations)
 else
-# Skip this step.
-compress_output := $(compress_input)
+$(relocation_packer_output): $(relocation_packer_input) | $(ACP)
+	@echo "target Unpacked: $(PRIVATE_MODULE) ($@)"
+	$(copy-file-to-target)
 endif
 
 ###########################################################
@@ -78,7 +80,7 @@ my_unstripped_path := $(TARGET_OUT_UNSTRIPPED)/$(patsubst $(PRODUCT_OUT)/%,%,$(m
 else
 my_unstripped_path := $(LOCAL_UNSTRIPPED_PATH)
 endif
-symbolic_input := $(compress_output)
+symbolic_input := $(relocation_packer_output)
 symbolic_output := $(my_unstripped_path)/$(my_installed_module_stem)
 $(symbolic_output) : $(symbolic_input) | $(ACP)
 	@echo "target Symbolic: $(PRIVATE_MODULE) ($@)"
@@ -93,23 +95,35 @@ strip_output := $(LOCAL_BUILT_MODULE)
 
 my_strip_module := $(LOCAL_STRIP_MODULE)
 ifeq ($(my_strip_module),)
-  my_strip_module := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_STRIP_MODULE)
+  my_strip_module := true
 endif
 
-ifeq ($(my_strip_module),true)
-# Strip the binary
-$(strip_output): PRIVATE_STRIP := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_STRIP)
-$(strip_output): PRIVATE_OBJCOPY := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_OBJCOPY)
-$(strip_output): $(strip_input) | $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_STRIP)
-	$(transform-to-stripped)
-else
-ifeq ($(my_strip_module),keep_symbols)
-# Strip only the debug frames, but leave the symbol table.
 $(strip_output): PRIVATE_STRIP := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_STRIP)
 $(strip_output): PRIVATE_OBJCOPY := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_OBJCOPY)
 $(strip_output): PRIVATE_READELF := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_READELF)
+ifeq ($(my_strip_module),no_debuglink)
+$(strip_output): PRIVATE_NO_DEBUGLINK := true
+else
+$(strip_output): PRIVATE_NO_DEBUGLINK :=
+endif
+
+ifneq ($(filter true no_debuglink,$(my_strip_module)),)
+# Strip the binary
+$(strip_output): $(strip_input) | $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_STRIP)
+	$(transform-to-stripped)
+else ifeq ($(my_strip_module),keep_symbols)
+# Strip only the debug frames, but leave the symbol table.
 $(strip_output): $(strip_input) | $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_STRIP)
 	$(transform-to-stripped-keep-symbols)
+
+# A product may be configured to strip everything in some build variants.
+# We do the stripping as a post-install command so that LOCAL_BUILT_MODULE
+# is still with the symbols and we don't need to clean it (and relink) when
+# you switch build variant.
+ifneq ($(filter $(STRIP_EVERYTHING_BUILD_VARIANTS),$(TARGET_BUILD_VARIANT)),)
+$(LOCAL_INSTALLED_MODULE): PRIVATE_POST_INSTALL_CMD := \
+  $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_STRIP) --strip-all $(LOCAL_INSTALLED_MODULE)
+endif
 else
 # Don't strip the binary, just copy it.  We can't skip this step
 # because a copy of the binary must appear at LOCAL_BUILT_MODULE.
@@ -125,11 +139,9 @@ $(strip_output): $(strip_input)
 	@echo "target Unstripped: $(PRIVATE_MODULE) ($@)"
 	$(copy-file-to-target-with-cp)
 endif
-endif
 endif # my_strip_module
-
 
 $(cleantarget): PRIVATE_CLEAN_FILES += \
     $(linked_module) \
     $(symbolic_output) \
-    $(compress_output)
+    $(strip_output)

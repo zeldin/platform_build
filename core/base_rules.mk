@@ -87,6 +87,7 @@ endif
 # file, tag the module as "gnu".  Search for "*_GPL*", "*_LGPL*" and "*_MPL*"
 # so that we can also find files like MODULE_LICENSE_GPL_AND_AFL
 #
+license_files := $(call find-parent-file,$(LOCAL_PATH),MODULE_LICENSE*)
 gpl_license_file := $(call find-parent-file,$(LOCAL_PATH),MODULE_LICENSE*_GPL* MODULE_LICENSE*_MPL* MODULE_LICENSE*_LGPL*)
 ifneq ($(gpl_license_file),)
   my_module_tags += gnu
@@ -114,6 +115,10 @@ ifeq ($(my_module_path),)
   else
   ifeq (true,$(LOCAL_PROPRIETARY_MODULE))
     partition_tag := _VENDOR
+  else ifeq (true,$(LOCAL_OEM_MODULE))
+    partition_tag := _OEM
+  else ifeq (true,$(LOCAL_ODM_MODULE))
+    partition_tag := _ODM
   else
     # The definition of should-install-to-system will be different depending
     # on which goal (e.g., sdk or just droid) is being built.
@@ -174,9 +179,15 @@ else
   built_module_path := $(intermediates)
 endif
 LOCAL_BUILT_MODULE := $(built_module_path)/$(my_built_module_stem)
-built_module_path :=
 
 ifneq (true,$(LOCAL_UNINSTALLABLE_MODULE))
+  # Apk and its attachments reside in its own subdir.
+  ifeq ($(LOCAL_MODULE_CLASS),APPS)
+  # framework-res.apk doesn't like the additional layer.
+  ifneq ($(LOCAL_NO_STANDARD_LIBRARIES),true)
+    my_module_path := $(my_module_path)/$(LOCAL_MODULE)
+  endif
+  endif
   LOCAL_INSTALLED_MODULE := $(my_module_path)/$(my_installed_module_stem)
 endif
 
@@ -198,19 +209,24 @@ aidl_sources := $(addprefix $(TOP_DIR)$(LOCAL_PATH)/, $(aidl_sources))
 aidl_preprocess_import :=
 LOCAL_SDK_VERSION:=$(strip $(LOCAL_SDK_VERSION))
 ifdef LOCAL_SDK_VERSION
-ifeq ($(LOCAL_SDK_VERSION)$(TARGET_BUILD_APPS),current)
+ifneq ($(filter current system_current, $(LOCAL_SDK_VERSION)$(TARGET_BUILD_APPS)),)
   # LOCAL_SDK_VERSION is current and no TARGET_BUILD_APPS
   aidl_preprocess_import := $(TARGET_OUT_COMMON_INTERMEDIATES)/framework.aidl
 else
   aidl_preprocess_import := $(HISTORICAL_SDK_VERSIONS_ROOT)/$(LOCAL_SDK_VERSION)/framework.aidl
-endif # !current
+endif # not current or system_current
 else
 # build against the platform.
 LOCAL_AIDL_INCLUDES += $(FRAMEWORKS_BASE_JAVA_SRC_DIRS)
 endif # LOCAL_SDK_VERSION
 $(aidl_java_sources): PRIVATE_AIDL_FLAGS := -b $(addprefix -p,$(aidl_preprocess_import)) -I$(LOCAL_PATH) -I$(LOCAL_PATH)/src $(addprefix -I,$(LOCAL_AIDL_INCLUDES))
 
-$(aidl_java_sources): $(intermediates.COMMON)/src/%.java: $(TOPDIR)$(LOCAL_PATH)/%.aidl $(LOCAL_ADDITIONAL_DEPENDENCIES) $(AIDL) $(aidl_preprocess_import)
+$(aidl_java_sources): $(intermediates.COMMON)/src/%.java: \
+        $(TOPDIR)$(LOCAL_PATH)/%.aidl \
+        $(LOCAL_MODULE_MAKEFILE) \
+        $(LOCAL_ADDITIONAL_DEPENDENCIES) \
+        $(AIDL) \
+        $(aidl_preprocess_import)
 	$(transform-aidl-to-java)
 -include $(aidl_java_sources:%.java=%.P)
 
@@ -230,7 +246,7 @@ event_log_tags := $(addprefix $(LOCAL_PATH)/,$(logtags_sources))
 
 # Emit a java source file with constants for the tags, if
 # LOCAL_MODULE_CLASS is "APPS" or "JAVA_LIBRARIES".
-ifneq ($(strip $(filter $(LOCAL_MODULE_CLASS),APPS JAVA_LIBRARIES)),)
+ifneq ($(filter $(LOCAL_MODULE_CLASS),APPS JAVA_LIBRARIES),)
 
 logtags_java_sources := $(patsubst %.logtags,%.java,$(addprefix $(intermediates.COMMON)/src/, $(logtags_sources)))
 logtags_sources := $(addprefix $(TOP_DIR)$(LOCAL_PATH)/, $(logtags_sources))
@@ -386,13 +402,14 @@ else
 ifeq ($(LOCAL_SDK_VERSION)$(TARGET_BUILD_APPS),current)
 # LOCAL_SDK_VERSION is current and no TARGET_BUILD_APPS.
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_BOOTCLASSPATH := -bootclasspath $(call java-lib-files,android_stubs_current)
+else ifeq ($(LOCAL_SDK_VERSION)$(TARGET_BUILD_APPS),system_current)
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_BOOTCLASSPATH := -bootclasspath $(call java-lib-files,android_system_stubs_current)
 else
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_BOOTCLASSPATH := -bootclasspath $(call java-lib-files,sdk_v$(LOCAL_SDK_VERSION))
-endif # current
+endif # current or system_current
 endif # LOCAL_SDK_VERSION
 endif # TARGET_
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_RESOURCE_DIR := $(LOCAL_RESOURCE_DIR)
-$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_EXTRA_JAR_ARGS := $(extra_jar_args)
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_ASSET_DIR := $(LOCAL_ASSET_DIR)
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_STATIC_JAVA_LIBRARIES := $(full_static_java_libs)
 
@@ -403,10 +420,11 @@ $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_STATIC_JAVA_LIBRARIES := $(full_static_ja
 #                 be up-to-date.
 ifdef LOCAL_IS_HOST_MODULE
 ifeq ($(USE_CORE_LIB_BOOTCLASSPATH),true)
-$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_BOOTCLASSPATH := -bootclasspath $(call java-lib-deps,core-libart-hostdex,$(LOCAL_IS_HOST_MODULE))
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_BOOTCLASSPATH := -bootclasspath $(call java-lib-files,core-libart-hostdex,$(LOCAL_IS_HOST_MODULE))
 
 full_shared_java_libs := $(call java-lib-files,$(LOCAL_JAVA_LIBRARIES),$(LOCAL_IS_HOST_MODULE))
-full_java_lib_deps := $(call java-lib-deps,$(LOCAL_JAVA_LIBRARIES),$(LOCAL_IS_HOST_MODULE))
+full_java_lib_deps := $(call java-lib-deps,$(LOCAL_JAVA_LIBRARIES),$(LOCAL_IS_HOST_MODULE)) \
+    $(full_shared_java_libs)
 else
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_BOOTCLASSPATH :=
 
@@ -423,10 +441,10 @@ full_java_lib_deps += $(full_static_java_libs) $(LOCAL_CLASSPATH)
 
 # This is set by packages that are linking to other packages that export
 # shared libraries, allowing them to make use of the code in the linked apk.
-LOCAL_APK_LIBRARIES := $(strip $(LOCAL_APK_LIBRARIES))
-ifdef LOCAL_APK_LIBRARIES
+apk_libraries := $(sort $(LOCAL_APK_LIBRARIES) $(LOCAL_RES_LIBRARIES))
+ifneq ($(apk_libraries),)
   link_apk_libraries := \
-      $(foreach lib,$(LOCAL_APK_LIBRARIES), \
+      $(foreach lib,$(apk_libraries), \
         $(call intermediates-dir-for, \
               APPS,$(lib),,COMMON)/classes.jar)
 
@@ -454,6 +472,10 @@ ifdef LOCAL_INSTRUMENTATION_FOR
   full_java_lib_deps += $(link_instr_classes_jar)
 endif
 
+endif  # need_compile_java
+
+# We may want to add jar manifest or jar resource files even if there is no java code at all.
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_EXTRA_JAR_ARGS := $(extra_jar_args)
 jar_manifest_file :=
 ifneq ($(strip $(LOCAL_JAR_MANIFEST)),)
 jar_manifest_file := $(LOCAL_PATH)/$(LOCAL_JAR_MANIFEST)
@@ -461,9 +483,6 @@ $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_JAR_MANIFEST := $(jar_manifest_file)
 else
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_JAR_MANIFEST :=
 endif
-
-endif  # need_compile_java
-
 
 ###########################################################
 ## make clean- targets
@@ -598,7 +617,7 @@ ifneq (true,$(LOCAL_UNINSTALLABLE_MODULE))
 ALL_MODULES.$(my_register_name).INSTALLED := \
     $(strip $(ALL_MODULES.$(my_register_name).INSTALLED) $(LOCAL_INSTALLED_MODULE))
 ALL_MODULES.$(my_register_name).BUILT_INSTALLED := \
-    $(strip $(ALL_MODULES.$(my_register_name).BUILT_INSTALLED)$(LOCAL_BUILT_MODULE):$(LOCAL_INSTALLED_MODULE))
+    $(strip $(ALL_MODULES.$(my_register_name).BUILT_INSTALLED) $(LOCAL_BUILT_MODULE):$(LOCAL_INSTALLED_MODULE))
 endif
 ifdef LOCAL_PICKUP_FILES
 # Files or directories ready to pick up by the build system
@@ -622,8 +641,26 @@ endif
 ifdef LOCAL_2ND_ARCH_VAR_PREFIX
 ALL_MODULES.$(my_register_name).FOR_2ND_ARCH := true
 endif
+ifdef aidl_sources
+ALL_MODULES.$(my_register_name).AIDL_FILES := $(aidl_sources)
+endif
 
 INSTALLABLE_FILES.$(LOCAL_INSTALLED_MODULE).MODULE := $(my_register_name)
+
+##########################################################
+# Track module-level dependencies.
+# Use $(LOCAL_MODULE) instead of $(my_register_name) to ignore module's bitness.
+ALL_DEPS.MODULES := $(sort $(ALL_DEPS.MODULES) $(LOCAL_MODULE))
+ALL_DEPS.$(LOCAL_MODULE).ALL_DEPS := $(sort \
+  $(ALL_MODULES.$(LOCAL_MODULE).ALL_DEPS) \
+  $(LOCAL_STATIC_LIBRARIES) \
+  $(LOCAL_WHOLE_STATIC_LIBRARIES) \
+  $(LOCAL_SHARED_LIBRARIES) \
+  $(LOCAL_STATIC_JAVA_LIBRARIES) \
+  $(LOCAL_JAVA_LIBRARIES)\
+  $(LOCAL_JNI_SHARED_LIBRARIES))
+
+ALL_DEPS.$(LOCAL_MODULE).LICENSE := $(sort $(ALL_DEPS.$(LOCAL_MODULE).LICENSE) $(license_files))
 
 ###########################################################
 ## Take care of my_module_tags
@@ -631,14 +668,6 @@ INSTALLABLE_FILES.$(LOCAL_INSTALLED_MODULE).MODULE := $(my_register_name)
 
 # Keep track of all the tags we've seen.
 ALL_MODULE_TAGS := $(sort $(ALL_MODULE_TAGS) $(my_module_tags))
-
-# Add this module to the tag list of each specified tag.
-# Don't use "+=". If the variable hasn't been set with ":=",
-# it will default to recursive expansion.
-$(foreach tag,$(my_module_tags),\
-    $(eval ALL_MODULE_TAGS.$(tag) := \
-        $(ALL_MODULE_TAGS.$(tag)) \
-        $(LOCAL_INSTALLED_MODULE)))
 
 # Add this module name to the tag list of each specified tag.
 $(foreach tag,$(my_module_tags),\
@@ -667,6 +696,86 @@ ifneq (,$(filter $(my_module_tags),tests))
 $(j_or_n)-$(h_or_t)-tests $(j_or_n)-tests $(h_or_t)-tests : $(my_checked_module)
 endif
 endif
+
+###########################################################
+# JACK
+###########################################################
+ifdef LOCAL_JACK_ENABLED
+ifdef need_compile_java
+
+full_static_jack_libs := \
+    $(foreach lib,$(LOCAL_STATIC_JAVA_LIBRARIES), \
+      $(call intermediates-dir-for, \
+        JAVA_LIBRARIES,$(lib),$(LOCAL_IS_HOST_MODULE),COMMON)/classes.jack)
+
+ifeq ($(my_prefix),TARGET_)
+ifeq ($(LOCAL_SDK_VERSION),)
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_BOOTCLASSPATH_JAVA_LIBRARIES := $(call jack-lib-files,core-libart)
+else
+ifeq ($(LOCAL_SDK_VERSION)$(TARGET_BUILD_APPS),current)
+# LOCAL_SDK_VERSION is current and no TARGET_BUILD_APPS.
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_BOOTCLASSPATH_JAVA_LIBRARIES := $(call jack-lib-files,android_stubs_current)
+else ifeq ($(LOCAL_SDK_VERSION)$(TARGET_BUILD_APPS),system_current)
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_BOOTCLASSPATH_JAVA_LIBRARIES := $(call jack-lib-files,android_system_stubs_current)
+else
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_BOOTCLASSPATH_JAVA_LIBRARIES := $(call jack-lib-files,sdk_v$(LOCAL_SDK_VERSION))
+endif # current or system_current
+endif # LOCAL_SDK_VERSION
+endif # TARGET_
+
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_STATIC_JACK_LIBRARIES := $(full_static_jack_libs)
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_JACK_VM_ARGS := $(LOCAL_JACK_VM_ARGS)
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_JACK_EXTRA_ARGS := $(LOCAL_JACK_EXTRA_ARGS)
+
+ifdef LOCAL_IS_HOST_MODULE
+ifeq ($(USE_CORE_LIB_BOOTCLASSPATH),true)
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_BOOTCLASSPATH_JAVA_LIBRARIES := $(call jack-lib-files,core-libart-hostdex,$(LOCAL_IS_HOST_MODULE))
+full_shared_jack_libs := $(call jack-lib-files,$(LOCAL_JAVA_LIBRARIES),$(LOCAL_IS_HOST_MODULE))
+full_jack_lib_deps := $(call jack-lib-deps,$(LOCAL_JAVA_LIBRARIES),$(LOCAL_IS_HOST_MODULE))
+else
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_BOOTCLASSPATH_JAVA_LIBRARIES :=
+full_shared_jack_libs := $(call jack-lib-deps,$(LOCAL_JAVA_LIBRARIES),$(LOCAL_IS_HOST_MODULE))
+full_jack_lib_deps := $(full_shared_jack_libs)
+endif # USE_CORE_LIB_BOOTCLASSPATH
+else # !LOCAL_IS_HOST_MODULE
+full_shared_jack_libs := $(call jack-lib-files,$(LOCAL_JAVA_LIBRARIES),$(LOCAL_IS_HOST_MODULE))
+full_jack_lib_deps := $(call jack-lib-deps,$(LOCAL_JAVA_LIBRARIES),$(LOCAL_IS_HOST_MODULE))
+endif # !LOCAL_IS_HOST_MODULE
+full_jack_libs := $(full_shared_jack_libs) $(full_static_jack_libs) $(LOCAL_JACK_CLASSPATH)
+full_jack_lib_deps += $(full_static_jack_libs) $(LOCAL_JACK_CLASSPATH)
+
+# This is set by packages that are linking to other packages that export
+# shared libraries, allowing them to make use of the code in the linked apk.
+ifneq ($(apk_libraries),)
+  link_apk_jack_libraries := \
+      $(foreach lib,$(apk_libraries), \
+        $(call intermediates-dir-for, \
+              APPS,$(lib),,COMMON)/classes.jack)
+
+  # link against the jar with full original names (before proguard processing).
+  full_shared_jack_libs += $(link_apk_jack_libraries)
+  full_jack_libs += $(link_apk_jack_libraries)
+  full_jack_lib_deps += $(link_apk_jack_libraries)
+endif
+
+# This is set by packages that contain instrumentation, allowing them to
+# link against the package they are instrumenting.  Currently only one such
+# package is allowed.
+ifdef LOCAL_INSTRUMENTATION_FOR
+
+   # link against the jar with full original names (before proguard processing).
+   link_instr_classes_jack := $(link_instr_intermediates_dir.COMMON)/classes.noshrob.jack
+   full_jack_libs += $(link_instr_classes_jack)
+   full_jack_lib_deps += $(link_instr_classes_jack)
+endif
+
+endif  # need_compile_java
+
+# Propagate local configuration options to this target.
+$(LOCAL_INTERMEDIATE_TARGETS) : PRIVATE_ALL_JACK_LIBRARIES:= $(full_jack_libs)
+$(LOCAL_INTERMEDIATE_TARGETS) : PRIVATE_JARJAR_RULES := $(LOCAL_JARJAR_RULES)
+
+endif # LOCAL_JACK_ENABLED
 
 ###########################################################
 ## NOTICE files

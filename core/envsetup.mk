@@ -22,7 +22,7 @@ CORRECT_BUILD_ENV_SEQUENCE_NUMBER := 10
 # NOTE: This will be overridden in product_config.mk if make
 # was invoked with a PRODUCT-xxx-yyy goal.
 ifeq ($(TARGET_PRODUCT),)
-TARGET_PRODUCT := full
+TARGET_PRODUCT := aosp_arm
 endif
 
 
@@ -72,6 +72,10 @@ ifneq (,$(findstring x86_64,$(UNAME)))
   HOST_ARCH := x86_64
   HOST_2ND_ARCH := x86
   HOST_IS_64_BIT := true
+else
+ifneq (,$(findstring x86,$(UNAME)))
+$(error Building on a 32-bit x86 host is not supported: $(UNAME)!)
+endif
 endif
 
 ifneq (,$(findstring ppc,$(UNAME)))
@@ -104,21 +108,28 @@ else
 endif
 # This is the standard way to name a directory containing prebuilt host
 # objects. E.g., prebuilt/$(HOST_PREBUILT_TAG)/cc
-ifeq ($(HOST_OS),windows)
-  HOST_PREBUILT_TAG := windows
-else
-  HOST_PREBUILT_TAG := $(HOST_OS)-$(HOST_PREBUILT_ARCH)
-endif
+HOST_PREBUILT_TAG := $(BUILD_OS)-$(HOST_PREBUILT_ARCH)
 
 # TARGET_COPY_OUT_* are all relative to the staging directory, ie PRODUCT_OUT.
 # Define them here so they can be used in product config files.
 TARGET_COPY_OUT_SYSTEM := system
 TARGET_COPY_OUT_DATA := data
-TARGET_COPY_OUT_VENDOR := system/vendor
+TARGET_COPY_OUT_OEM := oem
+TARGET_COPY_OUT_ODM := odm
 TARGET_COPY_OUT_ROOT := root
 TARGET_COPY_OUT_RECOVERY := recovery
+###########################################
+# Define TARGET_COPY_OUT_VENDOR to a placeholder, for at this point
+# we don't know if the device wants to build a separate vendor.img
+# or just build vendor stuff into system.img.
+# A device can set up TARGET_COPY_OUT_VENDOR to "vendor" in its
+# BoardConfig.mk.
+# We'll substitute with the real value after loading BoardConfig.mk.
+_vendor_path_placeholder := ||VENDOR-PATH-PH||
+TARGET_COPY_OUT_VENDOR := $(_vendor_path_placeholder)
+###########################################
 
-# Read the product specs so we an get TARGET_DEVICE and other
+# Read the product specs so we can get TARGET_DEVICE and other
 # variables that we need in order to locate the output files.
 include $(BUILD_SYSTEM)/product_config.mk
 
@@ -128,10 +139,6 @@ $(warning bad TARGET_BUILD_VARIANT: $(TARGET_BUILD_VARIANT))
 $(error must be empty or one of: eng user userdebug)
 endif
 
-# Build host as 32-bit for SDK build.
-ifneq ($(filter $(MAKECMDGOALS),win_sdk sdk),)
-HOST_PREFER_32_BIT := true
-endif
 ifdef USE_MINGW
 # We only build sdk host tools in the MinGW windows build.
 # Build it as 32-bit as well.
@@ -161,6 +168,17 @@ ifeq ($(TARGET_ARCH),)
 endif
 TARGET_DEVICE_DIR := $(patsubst %/,%,$(dir $(board_config_mk)))
 board_config_mk :=
+
+###########################################
+# Now we can substitute with the real value of TARGET_COPY_OUT_VENDOR
+ifeq ($(TARGET_COPY_OUT_VENDOR),$(_vendor_path_placeholder))
+TARGET_COPY_OUT_VENDOR := system/vendor
+else ifeq ($(filter vendor system/vendor,$(TARGET_COPY_OUT_VENDOR)),)
+$(error TARGET_COPY_OUT_VENDOR must be either 'vendor' or 'system/vendor', seeing '$(TARGET_COPY_OUT_VENDOR)'.)
+endif
+PRODUCT_COPY_FILES := $(subst $(_vendor_path_placeholder),$(TARGET_COPY_OUT_VENDOR),$(PRODUCT_COPY_FILES))
+###########################################
+
 
 # ---------------------------------------------------------------
 # Set up configuration for target machine.
@@ -230,6 +248,7 @@ HOST_OUT_HEADERS := $(HOST_OUT_INTERMEDIATES)/include
 HOST_OUT_INTERMEDIATE_LIBRARIES := $(HOST_OUT_INTERMEDIATES)/lib
 HOST_OUT_NOTICE_FILES := $(HOST_OUT_INTERMEDIATES)/NOTICE_FILES
 HOST_OUT_COMMON_INTERMEDIATES := $(HOST_COMMON_OUT_ROOT)/obj
+HOST_OUT_FAKE := $(HOST_OUT)/fake_packages
 
 HOST_OUT_GEN := $(HOST_OUT)/gen
 HOST_OUT_COMMON_GEN := $(HOST_COMMON_OUT_ROOT)/gen
@@ -241,6 +260,7 @@ $(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_INTERMEDIATES := $(HOST_OUT)/obj32
 $(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_INTERMEDIATE_LIBRARIES := $($(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_INTERMEDIATES)/lib
 $(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_SHARED_LIBRARIES := $(HOST_OUT)/lib
 $(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_EXECUTABLES := $(HOST_OUT_EXECUTABLES)
+$(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_JAVA_LIBRARIES := $(HOST_OUT_JAVA_LIBRARIES)
 
 # The default host library path.
 # It always points to the path where we build libraries in the default bitness.
@@ -259,14 +279,20 @@ TARGET_OUT_GEN := $(PRODUCT_OUT)/gen
 TARGET_OUT_COMMON_GEN := $(TARGET_COMMON_OUT_ROOT)/gen
 
 TARGET_OUT := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_SYSTEM)
+ifeq ($(SANITIZE_TARGET),address)
+target_out_shared_libraries_base := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_DATA)
+else
+target_out_shared_libraries_base := $(TARGET_OUT)
+endif
+
 TARGET_OUT_EXECUTABLES := $(TARGET_OUT)/bin
 TARGET_OUT_OPTIONAL_EXECUTABLES := $(TARGET_OUT)/xbin
 ifeq ($(TARGET_IS_64_BIT),true)
 # /system/lib always contains 32-bit libraries,
 # and /system/lib64 (if present) always contains 64-bit libraries.
-TARGET_OUT_SHARED_LIBRARIES := $(TARGET_OUT)/lib64
+TARGET_OUT_SHARED_LIBRARIES := $(target_out_shared_libraries_base)/lib64
 else
-TARGET_OUT_SHARED_LIBRARIES := $(TARGET_OUT)/lib
+TARGET_OUT_SHARED_LIBRARIES := $(target_out_shared_libraries_base)/lib
 endif
 TARGET_OUT_JAVA_LIBRARIES := $(TARGET_OUT)/framework
 TARGET_OUT_APPS := $(TARGET_OUT)/app
@@ -282,7 +308,7 @@ TARGET_2ND_ARCH_VAR_PREFIX := $(HOST_2ND_ARCH_VAR_PREFIX)
 TARGET_2ND_ARCH_MODULE_SUFFIX := $(HOST_2ND_ARCH_MODULE_SUFFIX)
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_INTERMEDIATES := $(PRODUCT_OUT)/obj_$(TARGET_2ND_ARCH)
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_INTERMEDIATE_LIBRARIES := $($(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_INTERMEDIATES)/lib
-$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_SHARED_LIBRARIES := $(TARGET_OUT)/lib
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_SHARED_LIBRARIES := $(target_out_shared_libraries_base)/lib
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_EXECUTABLES := $(TARGET_OUT_EXECUTABLES)
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_APPS := $(TARGET_OUT_APPS)
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_APPS_PRIVILEGED := $(TARGET_OUT_APPS_PRIVILEGED)
@@ -310,12 +336,18 @@ $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_DATA_NATIVE_TESTS := $(TARGET_OUT_DATA)/
 TARGET_OUT_CACHE := $(PRODUCT_OUT)/cache
 
 TARGET_OUT_VENDOR := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_VENDOR)
+ifeq ($(SANITIZE_TARGET),address)
+target_out_vendor_shared_libraries_base := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_DATA)/vendor
+else
+target_out_vendor_shared_libraries_base := $(TARGET_OUT_VENDOR)
+endif
+
 TARGET_OUT_VENDOR_EXECUTABLES := $(TARGET_OUT_VENDOR)/bin
 TARGET_OUT_VENDOR_OPTIONAL_EXECUTABLES := $(TARGET_OUT_VENDOR)/xbin
 ifeq ($(TARGET_IS_64_BIT),true)
-TARGET_OUT_VENDOR_SHARED_LIBRARIES := $(TARGET_OUT_VENDOR)/lib64
+TARGET_OUT_VENDOR_SHARED_LIBRARIES := $(target_out_vendor_shared_libraries_base)/lib64
 else
-TARGET_OUT_VENDOR_SHARED_LIBRARIES := $(TARGET_OUT_VENDOR)/lib
+TARGET_OUT_VENDOR_SHARED_LIBRARIES := $(target_out_vendor_shared_libraries_base)/lib
 endif
 TARGET_OUT_VENDOR_JAVA_LIBRARIES := $(TARGET_OUT_VENDOR)/framework
 TARGET_OUT_VENDOR_APPS := $(TARGET_OUT_VENDOR)/app
@@ -325,9 +357,40 @@ $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_VENDOR_EXECUTABLES := $(TARGET_OUT_VENDO
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_VENDOR_SHARED_LIBRARIES := $(TARGET_OUT_VENDOR)/lib
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_VENDOR_APPS := $(TARGET_OUT_VENDOR_APPS)
 
+TARGET_OUT_OEM := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_OEM)
+TARGET_OUT_OEM_EXECUTABLES := $(TARGET_OUT_OEM)/bin
+ifeq ($(TARGET_IS_64_BIT),true)
+TARGET_OUT_OEM_SHARED_LIBRARIES := $(TARGET_OUT_OEM)/lib64
+else
+TARGET_OUT_OEM_SHARED_LIBRARIES := $(TARGET_OUT_OEM)/lib
+endif
+# We don't expect Java libraries in the oem.img.
+# TARGET_OUT_OEM_JAVA_LIBRARIES:= $(TARGET_OUT_OEM)/framework
+TARGET_OUT_OEM_APPS := $(TARGET_OUT_OEM)/app
+TARGET_OUT_OEM_ETC := $(TARGET_OUT_OEM)/etc
+
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_OEM_EXECUTABLES := $(TARGET_OUT_OEM_EXECUTABLES)
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_OEM_SHARED_LIBRARIES := $(TARGET_OUT_OEM)/lib
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_OEM_APPS := $(TARGET_OUT_OEM_APPS)
+
+TARGET_OUT_ODM := $(PRODUCT_OUT)/$(TARGET_COPY_OUT_ODM)
+TARGET_OUT_ODM_EXECUTABLES := $(TARGET_OUT_ODM)/bin
+ifeq ($(TARGET_IS_64_BIT),true)
+TARGET_OUT_ODM_SHARED_LIBRARIES := $(TARGET_OUT_ODM)/lib64
+else
+TARGET_OUT_ODM_SHARED_LIBRARIES := $(TARGET_OUT_ODM)/lib
+endif
+TARGET_OUT_ODM_APPS := $(TARGET_OUT_ODM)/app
+TARGET_OUT_ODM_ETC := $(TARGET_OUT_ODM)/etc
+
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_ODM_EXECUTABLES := $(TARGET_OUT_ODM_EXECUTABLES)
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_ODM_SHARED_LIBRARIES := $(TARGET_OUT_ODM)/lib
+$(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_OUT_ODM_APPS := $(TARGET_OUT_ODM_APPS)
+
 TARGET_OUT_UNSTRIPPED := $(PRODUCT_OUT)/symbols
 TARGET_OUT_EXECUTABLES_UNSTRIPPED := $(TARGET_OUT_UNSTRIPPED)/system/bin
 TARGET_OUT_SHARED_LIBRARIES_UNSTRIPPED := $(TARGET_OUT_UNSTRIPPED)/system/lib
+TARGET_OUT_VENDOR_SHARED_LIBRARIES_UNSTRIPPED := $(TARGET_OUT_UNSTRIPPED)/$(TARGET_COPY_OUT_VENDOR)/lib
 TARGET_ROOT_OUT_UNSTRIPPED := $(TARGET_OUT_UNSTRIPPED)
 TARGET_ROOT_OUT_SBIN_UNSTRIPPED := $(TARGET_OUT_UNSTRIPPED)/sbin
 TARGET_ROOT_OUT_BIN_UNSTRIPPED := $(TARGET_OUT_UNSTRIPPED)/bin
@@ -349,8 +412,6 @@ TARGET_INSTALLER_OUT := $(PRODUCT_OUT)/installer
 TARGET_INSTALLER_DATA_OUT := $(TARGET_INSTALLER_OUT)/data
 TARGET_INSTALLER_ROOT_OUT := $(TARGET_INSTALLER_OUT)/root
 TARGET_INSTALLER_SYSTEM_OUT := $(TARGET_INSTALLER_OUT)/root/system
-
-TARGET_FACTORY_RAMDISK_OUT := $(PRODUCT_OUT)/factory_ramdisk
 
 COMMON_MODULE_CLASSES := TARGET-NOTICE_FILES HOST-NOTICE_FILES HOST-JAVA_LIBRARIES
 

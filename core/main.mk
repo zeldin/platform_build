@@ -29,7 +29,7 @@ endif
 # TOPDIR is the normal variable you should use, because
 # if we are executing relative to the current directory
 # it can be "", whereas TOP must be "." which causes
-# pattern matching probles when make strips off the
+# pattern matching problems when make strips off the
 # trailing "./" from paths in various places.
 #ifeq ($(TOP),.)
 #TOPDIR :=
@@ -79,11 +79,14 @@ dont_bother_goals := clean clobber dataclean installclean \
     cacheimage-nodeps \
     vendorimage-nodeps \
     ramdisk-nodeps \
-    bootimage-nodeps
+    bootimage-nodeps \
+    recoveryimage-nodeps
 
 ifneq ($(filter $(dont_bother_goals), $(MAKECMDGOALS)),)
 dont_bother := true
 endif
+
+ORIGINAL_MAKECMDGOALS := $(MAKECMDGOALS)
 
 # Targets that provide quick help on the build system.
 include $(BUILD_SYSTEM)/help.mk
@@ -91,6 +94,19 @@ include $(BUILD_SYSTEM)/help.mk
 # Set up various standard variables based on configuration
 # and host information.
 include $(BUILD_SYSTEM)/config.mk
+
+ifeq ($(USE_NINJA),true)
+include build/core/ninja.mk
+else # !USE_NINJA
+
+# Write the build number to a file so it can be read back in
+# without changing the command line every time.  Avoids rebuilds
+# when using ninja.
+$(shell mkdir -p $(OUT_DIR) && echo -n $(BUILD_NUMBER) > $(OUT_DIR)/build_number.txt)
+BUILD_NUMBER_FROM_FILE := $$(cat $(OUT_DIR)/build_number.txt)
+
+# CTS-specific config.
+-include cts/build/config.mk
 
 # This allows us to force a clean build - included after the config.mk
 # environment setup is done, but before we generate any dependencies.  This
@@ -140,18 +156,18 @@ java_version_str := $(shell unset _JAVA_OPTIONS && java -version 2>&1)
 javac_version_str := $(shell unset _JAVA_OPTIONS && javac -version 2>&1)
 
 # Check for the correct version of java, should be 1.7 by
-# default, and 1.6 if LEGACY_USE_JAVA6 is set.
-ifeq ($(LEGACY_USE_JAVA6),)
+# default, and 1.8 if EXPERIMENTAL_USE_JAVA8 is set
+ifneq ($(EXPERIMENTAL_USE_JAVA8),)
+required_version := "1.8.x"
+required_javac_version := "1.8"
+java_version := $(shell echo '$(java_version_str)' | grep 'openjdk .*[ "]1\.8[\. "$$]')
+javac_version := $(shell echo '$(javac_version_str)' | grep '[ "]1\.8[\. "$$]')
+else # default
 required_version := "1.7.x"
 required_javac_version := "1.7"
 java_version := $(shell echo '$(java_version_str)' | grep '^java .*[ "]1\.7[\. "$$]')
 javac_version := $(shell echo '$(javac_version_str)' | grep '[ "]1\.7[\. "$$]')
-else # if LEGACY_USE_JAVA6
-required_version := "1.6.x"
-required_javac_version := "1.6"
-java_version := $(shell echo '$(java_version_str)' | grep '^java .*[ "]1\.6[\. "$$]')
-javac_version := $(shell echo '$(javac_version_str)' | grep '[ "]1\.6[\. "$$]')
-endif # if LEGACY_USE_JAVA6
+endif # if EXPERIMENTAL_USE_JAVA8
 
 ifeq ($(strip $(java_version)),)
 $(info ************************************************************)
@@ -170,12 +186,9 @@ endif
 # Check for the current JDK.
 #
 # For Java 1.7, we require OpenJDK on linux and Oracle JDK on Mac OS.
-# For Java 1.6, we require Oracle for all host OSes.
 requires_openjdk := false
-ifeq ($(LEGACY_USE_JAVA6),)
-ifeq ($(HOST_OS), linux)
+ifeq ($(BUILD_OS),linux)
 requires_openjdk := true
-endif
 endif
 
 
@@ -185,12 +198,8 @@ ifeq ($(requires_openjdk), true)
 # java version is really openjdk
 ifeq ($(shell echo '$(java_version_str)' | grep -i openjdk),)
 $(info ************************************************************)
-$(info You are attempting to build with an unsupported JDK.)
-$(info $(space))
-$(info This build requires OpenJDK, but you are using:)
+$(info You asked for an OpenJDK 7 build but your version is)
 $(info $(java_version_str).)
-$(info Please follow the machine setup instructions at)
-$(info $(space)$(space)$(space)$(space)https://source.android.com/source/download.html)
 $(info ************************************************************)
 $(error stop)
 endif # java version is not OpenJdk
@@ -281,8 +290,8 @@ endif
 ifneq ($(filter-out $(INTERNAL_VALID_VARIANTS),$(TARGET_BUILD_VARIANT)),)
 $(info ***************************************************************)
 $(info ***************************************************************)
-$(info Invalid variant: $(TARGET_BUILD_VARIANT)
-$(info Valid values are: $(INTERNAL_VALID_VARIANTS)
+$(info Invalid variant: $(TARGET_BUILD_VARIANT))
+$(info Valid values are: $(INTERNAL_VALID_VARIANTS))
 $(info ***************************************************************)
 $(info ***************************************************************)
 $(error stopping)
@@ -312,9 +321,19 @@ ifneq ($(filter sdk win_sdk sdk_addon,$(MAKECMDGOALS)),)
 is_sdk_build := true
 endif
 
-ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.isa.$(TARGET_ARCH).features=$(DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES)
+# Add build properties for ART. These define system properties used by installd
+# to pass flags to dex2oat.
+ADDITIONAL_BUILD_PROPERTIES += persist.sys.dalvik.vm.lib.2=libart
+ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.isa.$(TARGET_ARCH).variant=$(DEX2OAT_TARGET_CPU_VARIANT)
+ifneq ($(DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES),)
+  ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.isa.$(TARGET_ARCH).features=$(DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES)
+endif
+
 ifdef TARGET_2ND_ARCH
-ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.isa.$(TARGET_2ND_ARCH).features=$($(TARGET_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES)
+  ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.isa.$(TARGET_2ND_ARCH).variant=$($(TARGET_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_CPU_VARIANT)
+  ifneq ($($(TARGET_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES),)
+    ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.isa.$(TARGET_2ND_ARCH).features=$($(TARGET_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES)
+  endif
 endif
 
 ## user/userdebug ##
@@ -334,15 +353,14 @@ ifneq (,$(user_variant))
     enable_target_debugging :=
   endif
 
-  # Turn on Dalvik preoptimization for libdvm.so user builds, but only if not
+  # Turn on Dalvik preoptimization for user builds, but only if not
   # explicitly disabled and the build is running on Linux (since host
   # Dalvik isn't built for non-Linux hosts).
   ifeq (,$(WITH_DEXPREOPT))
-    ifeq ($(DALVIK_VM_LIB),libdvm.so)
-      ifeq ($(user_variant),user)
-        ifeq ($(HOST_OS),linux)
-          WITH_DEXPREOPT := true
-        endif
+    ifeq ($(user_variant),user)
+      ifeq ($(HOST_OS),linux)
+        # TODO: turn on WITH_DEXPREOPT for libart user builds.
+        # WITH_DEXPREOPT := true
       endif
     endif
   endif
@@ -381,10 +399,13 @@ ifneq ($(filter ro.setupwizard.mode=ENABLED, $(call collapse-pairs, $(ADDITIONAL
           $(call collapse-pairs, $(ADDITIONAL_BUILD_PROPERTIES))) \
           ro.setupwizard.mode=OPTIONAL
 endif
-# Don't even verify the image on eng builds to speed startup
-ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.image-dex2oat-filter=verify-none
-# Don't compile apps on eng builds to speed startup
-ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.dex2oat-filter=interpret-only
+ifndef is_sdk_build
+  # Don't verify or compile the image on eng builds to speed startup.
+  ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.image-dex2oat-filter=verify-at-runtime
+  # Don't verify or compile apps on eng builds to speed startup.
+  ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.dex2oat-filter=verify-at-runtime
+endif
+  ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.usejit=true
 endif
 
 ## sdk ##
@@ -395,7 +416,7 @@ ifdef is_sdk_build
 sdk_repo_goal := $(strip $(filter sdk_repo,$(MAKECMDGOALS)))
 MAKECMDGOALS := $(strip $(filter-out sdk_repo,$(MAKECMDGOALS)))
 
-ifneq ($(words $(filter-out $(INTERNAL_MODIFIER_TARGETS) checkbuild,$(MAKECMDGOALS))),1)
+ifneq ($(words $(filter-out $(INTERNAL_MODIFIER_TARGETS) checkbuild emulator_tests target-files-package,$(MAKECMDGOALS))),1)
 $(error The 'sdk' target may not be specified with any other targets)
 endif
 
@@ -408,16 +429,6 @@ else # !sdk
 endif
 
 BUILD_WITHOUT_PV := true
-
-## precise GC ##
-
-ifneq ($(filter dalvik.gc.type-precise,$(PRODUCT_TAGS)),)
-  # Enabling type-precise GC results in larger optimized DEX files.  The
-  # additional storage requirements for ".odex" files can cause /system
-  # to overflow on some devices, so this is configured separately for
-  # each product.
-  ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.dexopt-flags=m=y
-endif
 
 ADDITIONAL_BUILD_PROPERTIES += net.bt.name=Android
 
@@ -773,7 +784,7 @@ ifdef is_sdk_build
     $(if $(strip $(ALL_MODULES.$(m).INSTALLED) $(ALL_MODULES.$(m)$(TARGET_2ND_ARCH_MODULE_SUFFIX).INSTALLED)),,\
       $(eval dangling_modules += $(m))))
   ifneq ($(dangling_modules),)
-    $(warning Module names '$(dangling_modules)' in PRODUCT_PACKAGES has nothing to install!)
+    $(warning: Modules '$(dangling_modules)' in PRODUCT_PACKAGES have nothing to install!)
   endif
   $(foreach m, $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES_DEBUG), \
     $(if $(strip $(ALL_MODULES.$(m).INSTALLED)),,\
@@ -845,12 +856,6 @@ endif
 .PHONY: ramdisk
 ramdisk: $(INSTALLED_RAMDISK_TARGET)
 
-.PHONY: factory_ramdisk
-factory_ramdisk: $(INSTALLED_FACTORY_RAMDISK_TARGET)
-
-.PHONY: factory_bundle
-factory_bundle: $(INSTALLED_FACTORY_BUNDLE_TARGET)
-
 .PHONY: systemtarball
 systemtarball: $(INSTALLED_SYSTEMTARBALL_TARGET)
 
@@ -882,7 +887,8 @@ ifndef BUILD_MODULES_IN_PATHS
 all_modules: $(ALL_MODULES)
 else
 # BUILD_MODULES_IN_PATHS is a list of paths relative to the top of the tree
-module_path_patterns := $(foreach p, $(BUILD_MODULES_IN_PATHS),\
+build_modules_in_paths := $(patsubst ./%,%,$(BUILD_MODULES_IN_PATHS))
+module_path_patterns := $(foreach p, $(build_modules_in_paths),\
     $(if $(filter %/,$(p)),$(p)%,$(p)/%))
 my_all_modules := $(sort $(foreach m, $(ALL_MODULES),$(if $(filter\
     $(module_path_patterns), $(addsuffix /,$(ALL_MODULES.$(m).PATH))),$(m))))
@@ -933,6 +939,9 @@ ifneq ($(TARGET_BUILD_APPS),)
   $(PROGUARD_DICT_ZIP) : $(apps_only_installed_files)
   $(call dist-for-goals,apps_only, $(PROGUARD_DICT_ZIP))
 
+  $(SYMBOLS_ZIP) : $(apps_only_installed_files)
+  $(call dist-for-goals,apps_only, $(SYMBOLS_ZIP))
+
 .PHONY: apps_only
 apps_only: $(unbundled_build_modules)
 
@@ -957,20 +966,20 @@ else # TARGET_BUILD_APPS
     $(BUILT_TARGET_FILES_PACKAGE) \
     $(INSTALLED_ANDROID_INFO_TXT_TARGET) \
     $(INSTALLED_RAMDISK_TARGET) \
-    $(INSTALLED_FACTORY_RAMDISK_TARGET) \
-    $(INSTALLED_FACTORY_BUNDLE_TARGET) \
    )
 
   # Put a copy of the radio/bootloader files in the dist dir.
   $(foreach f,$(INSTALLED_RADIOIMAGE_TARGET), \
     $(call dist-for-goals, droidcore, $(f)))
 
+  ifneq ($(ANDROID_BUILD_EMBEDDED),true)
   ifneq ($(TARGET_BUILD_PDK),true)
     $(call dist-for-goals, droidcore, \
       $(APPS_ZIP) \
       $(INTERNAL_EMULATOR_PACKAGE_TARGET) \
       $(PACKAGE_STATS_FILE) \
     )
+  endif
   endif
 
   ifeq ($(EMMA_INSTRUMENT),true)
@@ -1011,8 +1020,14 @@ target-java-tests : java-target-tests
 target-native-tests : native-target-tests
 tests : host-tests target-tests
 
-
-.PHONY: lintall
+# To catch more build breakage, check build tests modules in eng and userdebug builds.
+ifneq ($(ANDROID_NO_TEST_CHECK),true)
+ifneq ($(TARGET_BUILD_PDK),true)
+ifneq ($(filter eng userdebug,$(TARGET_BUILD_VARIANT)),)
+droidcore : target-tests host-tests
+endif
+endif
+endif
 
 ifneq (,$(filter samplecode, $(MAKECMDGOALS)))
 .PHONY: samplecode
@@ -1035,7 +1050,7 @@ findbugs: $(INTERNAL_FINDBUGS_HTML_TARGET) $(INTERNAL_FINDBUGS_XML_TARGET)
 
 .PHONY: clean
 clean:
-	@rm -rf $(OUT_DIR)
+	@rm -rf $(OUT_DIR)/*
 	@echo "Entire build directory removed."
 
 .PHONY: clobber
@@ -1057,3 +1072,4 @@ showcommands:
 .PHONY: nothing
 nothing:
 	@echo Successfully read the makefiles.
+endif # !USE_NINJA

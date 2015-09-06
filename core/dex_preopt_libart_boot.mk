@@ -27,9 +27,17 @@ $(my_2nd_arch_prefix)LIBART_BOOT_IMAGE_FILENAME := /$(DEXPREOPT_BOOT_JAR_DIR)/$(
 # The .oat with symbols
 $(my_2nd_arch_prefix)LIBART_TARGET_BOOT_OAT_UNSTRIPPED := $(TARGET_OUT_UNSTRIPPED)$(patsubst %.art,%.oat,$($(my_2nd_arch_prefix)LIBART_BOOT_IMAGE_FILENAME))
 
-$(my_2nd_arch_prefix)DEFAULT_DEX_PREOPT_INSTALLED_IMAGE :=
-ifneq ($(PRODUCT_DEX_PREOPT_IMAGE_IN_DATA),true)
 $(my_2nd_arch_prefix)DEFAULT_DEX_PREOPT_INSTALLED_IMAGE := $(PRODUCT_OUT)$($(my_2nd_arch_prefix)LIBART_BOOT_IMAGE_FILENAME)
+
+# Compile boot.oat as position-independent code if WITH_DEXPREOPT_PIC=true
+ifeq (true,$(WITH_DEXPREOPT_PIC))
+  PRODUCT_DEX_PREOPT_BOOT_FLAGS += --compile-pic
+endif
+
+# If we have a compiled-classes file, create a parameter.
+COMPILED_CLASSES_FLAGS :=
+ifneq ($(COMPILED_CLASSES),)
+  COMPILED_CLASSES_FLAGS := --compiled-classes=$(COMPILED_CLASSES)
 endif
 
 # The rule to install boot.art and boot.oat
@@ -52,6 +60,7 @@ $($(my_2nd_arch_prefix)DEFAULT_DEX_PREOPT_BUILT_IMAGE_FILENAME) : $(LIBART_TARGE
 		--oat-location=$(patsubst %.art,%.oat,$($(PRIVATE_2ND_ARCH_VAR_PREFIX)LIBART_BOOT_IMAGE_FILENAME)) \
 		--image=$@ --base=$(LIBART_IMG_TARGET_BASE_ADDRESS) \
 		--instruction-set=$($(PRIVATE_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_ARCH) \
+		--instruction-set-variant=$($(PRIVATE_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_CPU_VARIANT) \
 		--instruction-set-features=$($(PRIVATE_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES) \
-		--android-root=$(PRODUCT_OUT)/system --include-patch-information --runtime-arg -Xnorelocate --no-include-debug-symbols \
-		$(PRODUCT_DEX_PREOPT_BOOT_FLAGS)
+		--android-root=$(PRODUCT_OUT)/system --include-patch-information --runtime-arg -Xnorelocate --no-generate-debug-info \
+		$(PRODUCT_DEX_PREOPT_BOOT_FLAGS) $(COMPILED_CLASSES_FLAGS)

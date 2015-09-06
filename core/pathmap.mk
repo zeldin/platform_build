@@ -16,7 +16,14 @@
 
 #
 # A central place to define mappings to paths, to avoid hard-coding
-# them in Android.mk files.
+# them in Android.mk files. Not meant for header file include directories,
+# despite the fact that it was historically used for that!
+#
+# If you want this for a library's header files, use LOCAL_EXPORT_C_INCLUDES
+# instead. Then users of the library don't have to do anything --- they'll
+# have the correct header files added to their include path automatically.
+#
+
 #
 # TODO: Allow each project to define stuff like this before the per-module
 #       Android.mk files are included, so we don't need to have a big central
@@ -27,22 +34,15 @@
 # A mapping from shorthand names to include directories.
 #
 pathmap_INCL := \
-    bootloader:bootable/bootloader/legacy/include \
     camera:system/media/camera/include \
-    corecg:external/skia/include/core \
     frameworks-base:frameworks/base/include \
     frameworks-native:frameworks/native/include \
-    graphics:external/skia/include/core \
-    libc:bionic/libc/include \
     libhardware:hardware/libhardware/include \
     libhardware_legacy:hardware/libhardware_legacy/include \
     libhost:build/libs/host/include \
-    libm:bionic/libm/include \
     libnativehelper:libnativehelper/include \
     libpagemap:system/extras/libpagemap/include \
     libril:hardware/ril/include \
-    libstdc++:bionic/libstdc++/include \
-    mkbootimg:system/core/mkbootimg \
     opengl-tests-includes:frameworks/native/opengl/tests/include \
     recovery:bootable/recovery \
     system-core:system/core/include \
@@ -51,6 +51,7 @@ pathmap_INCL := \
     audio-route:system/media/audio_route/include \
     wilhelm:frameworks/wilhelm/include \
     wilhelm-ut:frameworks/wilhelm/src/ut \
+    mediandk:frameworks/av/media/ndk/ \
     speex:external/speex/include
 
 #
@@ -86,6 +87,7 @@ FRAMEWORKS_BASE_SUBDIRS := \
 	    drm \
 	    opengl \
 	    sax \
+	    telecomm \
 	    telephony \
 	    wifi \
 	    keystore \
@@ -105,12 +107,17 @@ FRAMEWORKS_BASE_JAVA_SRC_DIRS := \
 # A list of all source roots under frameworks/support.
 #
 FRAMEWORKS_SUPPORT_SUBDIRS := \
+        annotations \
         v4 \
         v7/gridlayout \
         v7/appcompat \
+        v7/cardview \
         v7/mediarouter \
+        v7/palette \
+        v7/recyclerview \
         v8/renderscript \
-        v13
+        v13 \
+        v17/leanback
 
 #
 # A list of all source roots under frameworks/multidex.
